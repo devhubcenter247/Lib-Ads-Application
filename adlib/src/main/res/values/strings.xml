@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="offline_notification_text">Tap to open ad</string>
+    <string name="well_comeback">Welcome back</string>
+    <string name="loading_ads">Loading Ads…</string>
+    <string name="facebook_app_id">1088964791852832</string>
+    <string name="facebook_client_token">YOUR_FACEBOOK_CLIENT_TOKEN</string>
+</resources>

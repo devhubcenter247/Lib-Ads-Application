@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="color_ad_body">#86909C</color>
+    <color name="color_ad_headline">#FFFFFF</color>
+    <color name="color_text_ad_call_action">#FFFFFF</color>
+    <color name="color_text_ad_call_action_low">#3665FF</color>
+</resources>

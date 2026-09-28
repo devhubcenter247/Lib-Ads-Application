@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Module Ads</string>
+    <string name="admod_app_id">ca-app-pub-3940256099942544~3347511713</string>
+
+    <string name="facebook_app_id">1088964791852832</string>
+    <string name="facebook_client_token">YOUR_FACEBOOK_CLIENT_TOKEN</string>
+    <string-array name="list_id_test">
+        <!--        app open-->
+        <item>ca-app-pub-3940256099942544/3419835294</item>
+        <!--        app open new-->
+        <item>ca-app-pub-3940256099942544/9257395921</item>
+        <!--        banner-->
+        <item>ca-app-pub-3940256099942544/6300978111</item>
+        <!--        banner collapsible-->
+        <item>ca-app-pub-3940256099942544/2014213617</item>
+        <!--        interstitial-->
+        <item>ca-app-pub-3940256099942544/1033173712</item>
+        <!--        interstitial video-->
+        <item>ca-app-pub-3940256099942544/8691691433</item>
+        <!--        rewarded-->
+        <item>ca-app-pub-3940256099942544/5224354917</item>
+        <!--        rewarded-->
+        <item>ca-app-pub-3940256099942544/5354046379</item>
+        <!--        native-->
+        <item>ca-app-pub-3940256099942544/2247696110</item>
+        <!--        native video-->
+        <item>ca-app-pub-3940256099942544/1044960115</item>
+        <!--        reward-interstitial-->
+        <item>ca-app-pub-3940256099942544/5354046379</item>
+    </string-array>
+    <string name="language">Language</string>
+    <string name="changes_applied">Changes applied!</string>
+    <string name="applying_language">Applying language…</string>
+    <string name="continues">Continue</string>
+    <string name="selected">Selected</string>
+    <string name="title_onboarding_1">Create Content in Seconds</string>
+    <string name="title_onboarding_2">Unlock More Possibilities</string>
+    <string name="title_onboarding_3">Turn Ideas into Results</string>
+    <string name="title_onboarding_4">Grow with Every Creation</string>
+    <string name="content_onboarding_1">Bring your ideas to life with simple, creative tools made for every project.</string>
+    <string name="content_onboarding_2">Discover premium features, collect rewards, and get more from every creation.</string>
+    <string name="content_onboarding_3">See what works best with clear insights, progress tracking, and helpful analytics.</string>
+    <string name="content_onboarding_4">Create smarter, improve your content, and keep growing with data-driven guidance.</string>
+    <string name="next">Next</string>
+    <string name="feature_content_1">Social Media Content</string>
+    <string name="feature_content_2">Videos and Reels</string>
+    <string name="feature_content_3">Marketing Designs</string>
+    <string name="feature_content_4">Product Content</string>
+    <string name="feature_content_5">Personal Projects</string>
+    <string name="which_style_inspires_you_most">What would you like to create?</string>
+    <string name="loading_language">Loading langiage data</string>
+</resources>

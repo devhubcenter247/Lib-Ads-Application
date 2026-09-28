@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="loadingDialogBackground">#FF000000</color>
+    <color name="loadingDialogSurface">#202226</color>
+    <color name="loadingDialogText">#EAEAEA</color>
+</resources>

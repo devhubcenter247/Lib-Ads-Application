@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="list_id_test">
+        
+        <item>ca-app-pub-3940256099942544/3419835294</item>
+        
+        <item>ca-app-pub-3940256099942544/9257395921</item>
+        
+        <item>ca-app-pub-3940256099942544/6300978111</item>
+        
+        <item>ca-app-pub-3940256099942544/2014213617</item>
+        
+        <item>ca-app-pub-3940256099942544/1033173712</item>
+        
+        <item>ca-app-pub-3940256099942544/8691691433</item>
+        
+        <item>ca-app-pub-3940256099942544/5224354917</item>
+        
+        <item>ca-app-pub-3940256099942544/5354046379</item>
+        
+        <item>ca-app-pub-3940256099942544/2247696110</item>
+        
+        <item>ca-app-pub-3940256099942544/1044960115</item>
+        
+        <item>ca-app-pub-3940256099942544/5354046379</item>
+    </string-array>
+    <color name="colorAccent">#00FF00</color>
+    <color name="colorAds">#068abf</color>
+    <color name="colorPrimary">#00FF00</color>
+    <color name="colorPrimaryDark">#000</color>
+    <color name="colorWhite">#ffffffff</color>
+    <color name="gntBlack">#000000</color>
+    <color name="lightTransparent">#16000000</color>
+    <color name="stockeCard">#5E58595A</color>
+    <color name="text_exit">#2152FF</color>
+    <color name="loadingDialogBackground">#FF000000</color>
+    <color name="loadingDialogSurface">#FFFFFF</color>
+    <color name="loadingDialogText">#1A1A1A</color>
+    <dimen name="_1sdp">1.00dp</dimen>
+    <dimen name="gnt_no_margin">0dp</dimen>
+    <dimen name="gnt_text_size_small">12sp</dimen>
+    <dimen name="height_native_ads">320dip</dimen>
+    <string name="loading_ads">Loading Ads…</string>
+    <string name="offline_notification_text">Tap to open ad</string>
+    <string name="well_comeback">Welcome back</string>
+    <style name="AdsAppTheme" parent="Theme.AppCompat.Light"/>
+    <style name="AppTheme" parent="Theme.AppCompat.Light.NoActionBar">
+        <item name="colorPrimary">@color/colorPrimary</item>
+        <item name="colorPrimaryDark">@color/colorPrimaryDark</item>
+        <item name="colorAccent">@color/colorAccent</item>
+    </style>
+    <style name="AppTheme.Ads" parent="@style/AdsAppTheme">
+        <item name="android:textSize">11.0sp</item>
+        <item name="android:textColor">#ffffff</item>
+        <item name="android:gravity">center</item>
+        <item name="android:layout_gravity">left</item>
+        <item name="android:background">@drawable/ads_icon</item>
+        <item name="android:paddingLeft">3.0dip</item>
+        <item name="android:paddingRight">6.0dip</item>
+        <item name="android:paddingBottom">1.0dip</item>
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:minWidth">15.0px</item>
+        <item name="android:minHeight">15.0px</item>
+        <item name="android:text">Ad</item>
+    </style>
+
+    <style name="LoadingDialogAnimation">
+        <item name="android:windowEnterAnimation">@anim/loading_dialog_fade_in</item>
+        <item name="android:windowExitAnimation">@anim/loading_dialog_fade_out</item>
+    </style>
+</resources>
