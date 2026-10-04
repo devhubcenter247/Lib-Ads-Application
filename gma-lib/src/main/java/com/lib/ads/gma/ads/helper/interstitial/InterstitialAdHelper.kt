@@ -14,6 +14,10 @@ import com.lib.ads.gma.ads.helper.IAdsConfig
 import com.lib.ads.gma.ads.helper.fullscreen.ForegroundGateHandle
 import com.lib.ads.gma.ads.helper.fullscreen.dismissSafely
 import com.lib.ads.gma.ads.helper.fullscreen.isAppInForeground
+import com.lib.ads.gma.ads.helper.fullscreen.preload.FullScreenAdStore
+import com.lib.ads.gma.ads.helper.fullscreen.preload.WeightedAdUnit
+import com.lib.ads.gma.ads.helper.interstitial.preload.InterstitialAdPreload
+import com.lib.ads.gma.ads.helper.interstitial.preload.InterstitialPreloadStrategy
 import com.lib.ads.gma.ads.helper.fullscreen.runWhenAppForeground
 import com.lib.ads.gma.ads.helper.fullscreen.showWaitingAdDialog
 import com.lib.ads.gma.ads.helper.params.IAdsParam
@@ -80,9 +84,17 @@ open class InterstitialAdConfig(
     var intervalBetweenAds: Long = 0L
     var autoReloadAfterShow: Boolean = true
     var loadTimeout: Long = 30_000L
+    private var weightedListId: List<WeightedAdUnit>? = null
 
     fun setListId(list: List<String>) = apply {
         this.listId = list
+        this.weightedListId = null
+    }
+
+    fun setWeightedListId(list: List<WeightedAdUnit>) = apply {
+        val normalized = FullScreenAdStore.dedupeMaxWeight(list)
+        this.weightedListId = normalized
+        this.listId = normalized.map { it.adUnitId }
     }
 
     fun setIntervalBetweenAds(intervalSeconds: Long) = apply {
@@ -100,6 +112,9 @@ open class InterstitialAdConfig(
     fun setPreloadTag(tag: String?) = apply {
         this.preloadTag = tag?.trim()?.takeIf { it.isNotEmpty() }
     }
+
+    fun weightedAdUnits(): List<WeightedAdUnit> =
+        weightedListId ?: InterstitialAdPreload.toWeightedUnits(listId)
 
     companion object {
         fun simple(
@@ -125,6 +140,21 @@ open class InterstitialAdConfig(
             canReloadAds: Boolean = true,
         ): InterstitialAdConfig =
             InterstitialAdConfig(adUnitIds, canShowAds, canReloadAds).apply {
+                this.autoReloadAfterShow = autoReloadAfterShow
+                this.intervalBetweenAds = intervalBetweenAds
+                this.loadTimeout = loadTimeoutMs
+            }
+
+        fun weightedWaterfall(
+            adUnits: List<WeightedAdUnit>,
+            autoReloadAfterShow: Boolean = true,
+            intervalBetweenAds: Long = 0L,
+            loadTimeoutMs: Long = 30_000L,
+            canShowAds: Boolean = true,
+            canReloadAds: Boolean = true,
+        ): InterstitialAdConfig =
+            InterstitialAdConfig(adUnits.map { it.adUnitId }, canShowAds, canReloadAds).apply {
+                setWeightedListId(adUnits)
                 this.autoReloadAfterShow = autoReloadAfterShow
                 this.intervalBetweenAds = intervalBetweenAds
                 this.loadTimeout = loadTimeoutMs
@@ -271,14 +301,16 @@ open class InterstitialAdHelper(
             logZ("preload: cannot request ads")
             return
         }
-        if (FullScreenAdLruCache.containsInterstitial(normalizedTag)) {
+        if (InterstitialAdPreload.hasReadyPreload(config.weightedAdUnits()) ||
+            FullScreenAdLruCache.containsInterstitial(normalizedTag)
+        ) {
             logZ("preload: tag=$normalizedTag already has a cached ad")
             return
         }
 
-        InterstitialAdManager.loadInterstitial(
-            tag = normalizedTag,
-            ids = config.listId,
+        InterstitialAdPreload.preload(
+            adUnits = config.weightedAdUnits(),
+            strategy = InterstitialPreloadStrategy.WATERFALL,
             listener = object : InterstitialAdListener {
                 override fun onLoaded(ad: ApInterstitialAd) {
                     logZ("preload: ad cached with tag=$normalizedTag")
@@ -289,6 +321,7 @@ open class InterstitialAdHelper(
                 }
             },
             placementId = config.placementId,
+            configKey = normalizedTag,
         )
     }
 
@@ -297,9 +330,11 @@ open class InterstitialAdHelper(
 
     private fun takePreloadedAd(): Boolean {
         val tag = resolvePreloadTag(activePreloadTag) ?: return false
-        val cached = FullScreenAdLruCache.pollInterstitial(tag)?.interstitialAd ?: return false
+        val preloaded = InterstitialAdPreload.pollInterstitial(config.weightedAdUnits())
+        val cachedWrapper = preloaded ?: FullScreenAdLruCache.pollInterstitial(tag)
+        val cached = cachedWrapper?.interstitialAd ?: return false
         interstitialAdLocal = cached
-        loadedAdUnitId = null
+        loadedAdUnitId = cached.adUnitId
         notifyLoadWaiters(true)
         invokeAdListener { it.onLoaded(ApInterstitialAd(cached)) }
         logZ("Using preloaded interstitial with tag=$tag")
@@ -384,14 +419,6 @@ open class InterstitialAdHelper(
         waitingDialog: Dialog? = null,
     ) {
         val adUnitId = loadedAdUnitId
-        if (activity == null) {
-            logZ("showAd: no Activity to show on")
-            waitingDialog.dismissSafely()
-            Ads.getInstance().setFullScreenAdShowing(false)
-            invokeAdListener { it.onNextAction() }
-            unregisterOneShot(oneShotCallback)
-            return
-        }
         if (activity.isFinishing || activity.isDestroyed) {
             logZ("showAd: Activity can no longer show an ad")
             waitingDialog.dismissSafely()

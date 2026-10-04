@@ -10,6 +10,7 @@ import com.google.android.libraries.ads.mobile.sdk.common.FullScreenContentError
 import com.google.android.libraries.ads.mobile.sdk.common.LoadAdError
 import com.lib.ads.gma.ads.engine.Ads
 import com.lib.ads.gma.ads.event.AdsLogEventManager
+import com.lib.ads.gma.ads.helper.appopen.preload.AppOpenAdPreload
 import com.lib.ads.gma.ads.helper.canRequestFullScreenAds
 import com.lib.ads.gma.ads.helper.extension.extractAdUnitIdOrNull
 import com.lib.ads.gma.ads.helper.fullscreen.ForegroundGateHandle
@@ -60,6 +61,7 @@ data class AppOpenAdConfig(
     )
 
     val idAds: String get() = listId.lastOrNull().orEmpty()
+    fun weightedAdUnits() = AppOpenAdPreload.toWeightedUnits(listId)
 }
 
 sealed class AppOpenPreloadState(){
@@ -124,11 +126,22 @@ class AppOpenAdHelper(
      * Compatibility alias for [preloadAd]. The configured IDs are tried in order, stopping at the
      * first one that loads.
      */
-    fun preloadAdWaterfall() = startPreload { loadWaterfall(config.listId) }
+    fun preloadAdWaterfall() = preloadAdToStore()
+
+    fun preloadAdToStore() {
+        val preloadTag = resolvePreloadTag() ?: return
+        AppOpenAdPreload.preload(
+            adUnits = config.weightedAdUnits(),
+            placementId = config.placementId,
+            configKey = preloadTag,
+        )
+    }
 
     private fun startPreload(preload: suspend () -> AppOpenPreloadState) {
         val preloadTag = resolvePreloadTag() ?: return
-        if (FullScreenAdLruCache.containsAppOpenPreload(preloadTag)) return
+        if (AppOpenAdPreload.hasReady(config.weightedAdUnits()) ||
+            FullScreenAdLruCache.containsAppOpenPreload(preloadTag)
+        ) return
         preloadDeferred?.cancel()
         appOpenAd?.destroy()
         appOpenAd = null
@@ -253,7 +266,8 @@ class AppOpenAdHelper(
         _adPreloadState.value = AppOpenPreloadState.Idle
         if (ad == null) {
             val tag = resolvePreloadTag() ?: return null
-            return FullScreenAdLruCache.pollFreshAppOpenPreload(
+            return AppOpenAdPreload.pollAppOpen(config.weightedAdUnits())
+                ?: FullScreenAdLruCache.pollFreshAppOpenPreload(
                 tag,
                 config.maxAdAgeHours.coerceAtLeast(0).toLong() * MILLIS_PER_HOUR,
             )
@@ -357,11 +371,11 @@ class AppOpenAdHelper(
                 }
             }
 
-            override fun onAdFailedToShowFullScreenContent(error: FullScreenContentError) {
+            override fun onAdFailedToShowFullScreenContent(fullScreenContentError: FullScreenContentError) {
                 scope.launch {
                     dialog.dismissSafely()
                     Ads.getInstance().setFullScreenAdShowing(false)
-                    failShow(callback, error.message)
+                    failShow(callback, fullScreenContentError.message)
                 }
             }
 
@@ -379,15 +393,15 @@ class AppOpenAdHelper(
                 }
             }
 
-            override fun onAdPaid(adValue: AdValue) {
+            override fun onAdPaid(value: AdValue) {
                 scope.launch {
                     AdsLogEventManager.logPaidAdImpression(
                         activity,
-                        adValue,
+                        value,
                         ad.getResponseInfo(),
                         AdType.APP_OPEN
                     )
-                    dispatch(callback) { it.onPaid(adValue) }
+                    dispatch(callback) { it.onPaid(value) }
                 }
             }
         }

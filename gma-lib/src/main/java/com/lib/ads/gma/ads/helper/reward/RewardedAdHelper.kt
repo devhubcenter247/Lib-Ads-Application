@@ -9,9 +9,11 @@ import com.lib.ads.gma.ads.manager.RewardAdManager
 import com.lib.ads.gma.ads.manager.FullScreenAdLruCache
 import com.lib.ads.gma.ads.helper.canRequestFullScreenAds
 import com.lib.ads.gma.ads.helper.fullscreen.dismissSafely
+import com.lib.ads.gma.ads.helper.fullscreen.preload.WeightedAdUnit
 import com.lib.ads.gma.ads.helper.fullscreen.isAppInForeground
 import com.lib.ads.gma.ads.helper.fullscreen.runWhenAppForeground
 import com.lib.ads.gma.ads.helper.fullscreen.showWaitingAdDialog
+import com.lib.ads.gma.ads.helper.reward.preload.RewardAdPreload
 import com.lib.ads.gma.ads.model.wrapper.ApAdError
 import com.lib.ads.gma.ads.model.wrapper.ApRewardAd
 import com.lib.ads.gma.ads.model.wrapper.ApRewardItem
@@ -42,9 +44,18 @@ data class RewardedAdConfig(
     val placementId: Long? = null,
     /** Shared preload bucket; falls back to the last ad unit ID when blank. */
     val preloadTag: String? = null,
+    private val weightedListId: List<WeightedAdUnit>? = null,
 ) {
     constructor(idAds: String, canShowAds: Boolean = true) : this(listOf(idAds), canShowAds = canShowAds)
     val idAds: String get() = listId.lastOrNull().orEmpty()
+
+    fun weightedAdUnits(): List<WeightedAdUnit> =
+        weightedListId ?: RewardAdPreload.toWeightedUnits(listId)
+
+    fun withWeightedAdUnits(adUnits: List<WeightedAdUnit>): RewardedAdConfig {
+        val normalized = com.lib.ads.gma.ads.helper.fullscreen.preload.FullScreenAdStore.dedupeMaxWeight(adUnits)
+        return copy(listId = normalized.map { it.adUnitId }, weightedListId = normalized)
+    }
 }
 
 open class RewardedAdHelper(
@@ -76,14 +87,17 @@ open class RewardedAdHelper(
     fun preload(tag: String? = config.preloadTag) {
         val resolvedTag = resolvePreloadTag(tag) ?: return
         activePreloadTag = resolvedTag
-        if (!canRequestFullScreenAds(appContext, config.canShowAds) || FullScreenAdLruCache.containsReward(resolvedTag)) return
-        RewardAdManager.loadReward(
-            tag = resolvedTag,
-            ids = config.listId,
+        if (!canRequestFullScreenAds(appContext, config.canShowAds) ||
+            RewardAdPreload.hasReadyReward(config.weightedAdUnits()) ||
+            FullScreenAdLruCache.containsReward(resolvedTag)
+        ) return
+        RewardAdPreload.preloadReward(
+            adUnits = config.weightedAdUnits(),
             listener = object : RewardAdListener {
                 override fun onFailed(error: ApAdError) = AdsDebugLogger.state("Reward preload failed", error)
             },
             placementId = config.placementId,
+            configKey = resolvedTag,
         )
     }
 
@@ -120,7 +134,8 @@ open class RewardedAdHelper(
             }
             withContext(Dispatchers.Main.immediate) {
                 currentAd = result
-                if (result == null) emit { it.onFailed(error ?: ApAdError("Reward failed")) } else emit { it.onLoaded(result!!) }
+                result?.let { ad -> emit { it.onLoaded(ad) } }
+                    ?: emit { it.onFailed(error ?: ApAdError("Reward failed")) }
             }
         }
     }
@@ -226,7 +241,9 @@ open class RewardedAdHelper(
 
     private fun takePreloadedAd(): Boolean {
         val tag = resolvePreloadTag(activePreloadTag) ?: return false
-        val cached = FullScreenAdLruCache.pollReward(tag) ?: return false
+        val cached = RewardAdPreload.pollReward(config.weightedAdUnits())
+            ?: FullScreenAdLruCache.pollReward(tag)
+            ?: return false
         if (!cached.isReady()) return false
         currentAd = cached
         emit { it.onLoaded(cached) }

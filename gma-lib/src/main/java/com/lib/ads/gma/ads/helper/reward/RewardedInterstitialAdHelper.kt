@@ -14,6 +14,7 @@ import com.lib.ads.gma.ads.helper.fullscreen.dismissSafely
 import com.lib.ads.gma.ads.helper.fullscreen.isAppInForeground
 import com.lib.ads.gma.ads.helper.fullscreen.runWhenAppForeground
 import com.lib.ads.gma.ads.helper.fullscreen.showWaitingAdDialog
+import com.lib.ads.gma.ads.helper.reward.preload.RewardAdPreload
 import com.lib.ads.gma.ads.manager.RewardAdManager
 import com.lib.ads.gma.ads.model.wrapper.ApAdError
 import com.lib.ads.gma.ads.model.wrapper.ApRewardAd
@@ -63,7 +64,15 @@ open class RewardedInterstitialAdHelper(
         val resolved = resolvePreloadId(tag) ?: return
         preloadId = resolved
         if (!canRequestFullScreenAds(appContext, config.canShowAds)) return
-        RewardAdManager.preloadRewardInterstitialAd(resolved, config.listId.first(), config.placementId)
+        RewardAdPreload.preloadRewardInterstitial(
+            adUnits = config.weightedAdUnits(),
+            listener = object : RewardAdListener {
+                override fun onFailed(error: ApAdError) = AdsDebugLogger.state("RewardInterstitial preload failed", error)
+            },
+            placementId = config.placementId,
+            ssvCustomData = config.ssvCustomData,
+            configKey = resolved,
+        )
     }
 
     fun preloadAds(tag: String? = config.preloadTag) = preload(tag)
@@ -93,8 +102,8 @@ open class RewardedInterstitialAdHelper(
                                     override fun onLoaded(ad: ApRewardAd) {
                                         if (continuation.isActive) continuation.resume(ad to null)
                                     }
-                                    override fun onFailed(failure: ApAdError) {
-                                        if (continuation.isActive) continuation.resume(null to failure)
+                                    override fun onFailed(error: ApAdError) {
+                                        if (continuation.isActive) continuation.resume(null to error)
                                     }
                                 },
                                 config.placementId,
@@ -108,8 +117,8 @@ open class RewardedInterstitialAdHelper(
                 if (loaded != null) break
             }
             currentAd = loaded
-            if (loaded != null) emit { it.onLoaded(loaded!!) }
-            else emit { it.onFailed(error ?: ApAdError("Rewarded interstitial load failed")) }
+            loaded?.let { ad -> emit { it.onLoaded(ad) } }
+                ?: emit { it.onFailed(error ?: ApAdError("Rewarded interstitial load failed")) }
         }
     }
 
@@ -169,7 +178,9 @@ open class RewardedInterstitialAdHelper(
 
     private fun pollPreloaded(): ApRewardAd? {
         val id = resolvePreloadId(preloadId) ?: return null
-        return RewardAdManager.getRewardInterstitialAdPreload(id)?.takeIf { it.isReady() }?.also { ad ->
+        return (RewardAdPreload.pollRewardInterstitial(config.weightedAdUnits())
+            ?: RewardAdManager.getRewardInterstitialAdPreload(id))
+            ?.takeIf { it.isReady() }?.also { ad ->
             config.ssvCustomData?.takeIf { it.isNotEmpty() }?.let { customData ->
                 ad.rewardInterstitial?.setServerSideVerificationOptions(ServerSideVerificationOptions("", customData))
             }
@@ -183,7 +194,7 @@ open class RewardedInterstitialAdHelper(
         override fun onShown(ad: ApRewardAd) { emit { it.onShown(ad) }; callback?.onShown(ad) }
         override fun onImpression(ad: ApRewardAd) { emit { it.onImpression(ad) }; callback?.onImpression(ad) }
         override fun onClicked(ad: ApRewardAd) { emit { it.onClicked(ad) }; callback?.onClicked(ad) }
-        override fun onPaid(value: AdValue) { emit { it.onPaid(value) }; callback?.onPaid(value) }
+        override fun onPaid(adValue: AdValue) { emit { it.onPaid(adValue) }; callback?.onPaid(adValue) }
         override fun onMetadataChanged() { emit { it.onMetadataChanged() }; callback?.onMetadataChanged() }
         override fun onRewarded(ad: ApRewardAd, item: ApRewardItem) { emit { it.onRewarded(ad, item) }; callback?.onRewarded(ad, item) }
         override fun onDismissed(ad: ApRewardAd) {

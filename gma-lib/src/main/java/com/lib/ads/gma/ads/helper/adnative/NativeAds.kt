@@ -260,6 +260,8 @@ object NativeAds {
         return tagCaches.get(tag)?.size ?: 0
     }
 
+    fun bufferCount(tag: String): Int = available(tag)
+
     fun requestCount(tag: String): Int = requestCounts[tag]?.get() ?: 0
 
     fun inFlightRequests(tag: String): Int = inFlightRequests[tag]?.get() ?: 0
@@ -281,6 +283,44 @@ object NativeAds {
         if (isExpired(tag, spec)) {
             preload(spec)
         }
+    }
+
+    fun refillNextIfEmpty(tag: String, nextAdUnitIds: List<String>, bufferSize: Int = 1) {
+        if (available(tag) > 0 || nextAdUnitIds.isEmpty()) return
+        val current = specs[tag]
+        val spec = NativeAdSpec.waterfall(
+            tag = tag,
+            adUnitIds = nextAdUnitIds,
+            bufferSize = bufferSize,
+            layoutId = current?.defaultLayoutId ?: 0,
+            canShowAds = current?.canShowAds ?: true,
+            canReloadAds = current?.canReloadAds ?: true,
+        )
+        safePreload(spec)
+    }
+
+    fun preloadHighestWeight(tag: String, selfUnits: List<com.lib.ads.gma.ads.helper.fullscreen.preload.WeightedAdUnit>) {
+        val current = specs[tag]
+        val normalized = com.lib.ads.gma.ads.helper.fullscreen.preload.FullScreenAdStore
+            .dedupeMaxWeight(selfUnits)
+            .sortedByDescending { it.weight }
+        if (normalized.isEmpty()) return
+        val readyId = readyAdUnitId(tag)
+        val readyWeight = current?.weightedAdUnits()
+            ?.firstOrNull { it.adUnitId == readyId }
+            ?.weight
+            ?: Float.NEGATIVE_INFINITY
+        if (available(tag) > 0 && readyWeight >= normalized.first().weight) return
+        safePreload(
+            NativeAdSpec.weightedWaterfall(
+                tag = tag,
+                adUnits = normalized,
+                bufferSize = current?.bufferSize ?: 1,
+                layoutId = current?.defaultLayoutId ?: 0,
+                canShowAds = current?.canShowAds ?: true,
+                canReloadAds = current?.canReloadAds ?: true,
+            )
+        )
     }
 
     /**
@@ -347,7 +387,11 @@ object NativeAds {
         adUnitIds: List<String>,
     ): Pair<ApNativeAd, String>? {
         val options = specs[tag]?.requestOptions ?: NativeAdRequestOptions()
-        for (id in adUnitIds) {
+        val ids = specs[tag]?.weightedAdUnits()
+            ?.sortedByDescending { it.weight }
+            ?.map { it.adUnitId }
+            ?: adUnitIds
+        for (id in ids) {
             val ad = loadOneNative(context, tag, id, options)
             if (ad != null) return ad to id
         }
