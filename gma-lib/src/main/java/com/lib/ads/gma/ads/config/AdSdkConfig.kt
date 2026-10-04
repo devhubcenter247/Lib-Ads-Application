@@ -53,6 +53,7 @@ class AdSdkConfig(
      */
     var skipUninitializedAdaptersForSplash: Boolean = false
     var adjustConfig: AdjustConfig? = null
+    var appsflyerConfig: AppsflyerConfig? = null
     var adapterInitializationConfig: AdapterInitializationConfig? = null
 
     /** Shows debug notices for test ad units in development builds. */

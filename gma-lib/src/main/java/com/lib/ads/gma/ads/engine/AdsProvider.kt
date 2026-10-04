@@ -15,6 +15,7 @@ import com.google.android.libraries.ads.mobile.sdk.initialization.AdapterInitial
 import com.lib.ads.gma.ads.helper.appopen.AppOpenManager
 import com.lib.ads.gma.ads.config.AdSdkConfig
 import com.lib.ads.gma.ads.event.AdsAdjust
+import com.lib.ads.gma.ads.event.AdsAppsflyer
 import com.lib.ads.gma.ads.util.AppLogger
 import com.lib.ads.gma.ads.util.AppUtil
 import com.adjust.sdk.Adjust
@@ -120,6 +121,17 @@ open class AdsProvider private constructor() {
                 it.adjustToken,
                 it.fbAppId
             )
+        }
+        adConfig.appsflyerConfig?.let {
+            if (it.enableAppsflyer) {
+                AdsAppsflyer.connect(
+                    application = application,
+                    devKey = it.devKey,
+                    debug = adConfig.isVariantDev,
+                    events = it.events,
+                    alreadyInitialized = it.alreadyInitialized,
+                )
+            }
         }
     }
 

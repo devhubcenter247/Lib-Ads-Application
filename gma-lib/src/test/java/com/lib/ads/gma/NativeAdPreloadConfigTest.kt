@@ -2,6 +2,8 @@ package com.lib.ads.gma
 
 import com.lib.ads.gma.ads.helper.adnative.api.NativeAdTagConfig
 import com.lib.ads.gma.ads.helper.adnative.preload.NativeAdPreloadHolderOptions
+import com.lib.ads.gma.ads.helper.adnative.NativeAdSpec
+import com.lib.ads.gma.ads.helper.fullscreen.preload.WeightedAdUnit
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -77,5 +79,26 @@ class NativeAdPreloadConfigTest {
         val options = NativeAdPreloadHolderOptions().copy(canShowAds = config.canShowAds, canReloadAds = config.canReloadAds)
         assertTrue(options.canShowAds)
         assertTrue(options.canReloadAds)
+    }
+
+    @Test
+    fun nativeAdSpec_weightedWaterfall_dedupesHighestWeightAndUpdatesIds() {
+        val spec = NativeAdSpec.weightedWaterfall(
+            tag = "feed",
+            adUnits = listOf(
+                WeightedAdUnit("low", 1f),
+                WeightedAdUnit("high", 4f),
+                WeightedAdUnit("high", 8f),
+            )
+        )
+
+        assertEquals(listOf("low", "high"), spec.adUnitIds)
+        assertEquals(
+            listOf(
+                WeightedAdUnit("low", 1f),
+                WeightedAdUnit("high", 8f),
+            ),
+            spec.weightedAdUnits(),
+        )
     }
 }
