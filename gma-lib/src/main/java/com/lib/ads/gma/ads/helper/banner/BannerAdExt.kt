@@ -7,7 +7,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
-import com.lib.ads.gma.ads.engine.Ads
+import com.lib.ads.gma.ads.engine.AdsProvider
 import com.lib.ads.gma.ads.helper.AdViewRenderer
 import com.lib.ads.gma.ads.helper.banner.params.BannerAdPreloadHolderOptions
 import com.lib.ads.gma.ads.helper.banner.params.BannerSize
@@ -75,7 +75,7 @@ fun BannerAdHolder.bindToContainer(
     val holder = this
     return owner.lifecycleScope.launch {
         combine(state, lastError) { state, error -> state to error }.collect { (state, error) ->
-            val tester = Ads.getInstance().adConfigOrNull?.showMessageForTester == true
+            val tester = AdsProvider.getInstance().adConfigOrNull?.showMessageForTester == true
             when (state) {
                 is BannerAdDisplayState.Loaded -> {
                     container.visibility = View.VISIBLE
@@ -161,7 +161,7 @@ internal fun buildBannerAdHolder(
             controller.cancel()
             (state.value as? BannerAdDisplayState.Loaded)?.adView?.destroy()
         },
-        loadingHeightDp = options.size.loadingHeightDp(Ads.getInstance().applicationContextOrNull()),
+        loadingHeightDp = options.size.loadingHeightDp(AdsProvider.getInstance().applicationContextOrNull()),
         tag = tag,
         _lastError = lastError,
     )

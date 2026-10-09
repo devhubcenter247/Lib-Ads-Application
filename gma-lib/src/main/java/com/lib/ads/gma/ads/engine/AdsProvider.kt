@@ -14,7 +14,6 @@ import com.google.android.libraries.ads.mobile.sdk.initialization.Initialization
 import com.google.android.libraries.ads.mobile.sdk.initialization.AdapterInitializationConfig
 import com.lib.ads.gma.ads.helper.appopen.AppOpenManager
 import com.lib.ads.gma.ads.config.AdSdkConfig
-import com.lib.ads.gma.ads.manager.AdsManager
 import com.lib.ads.gma.ads.event.AdsAdjust
 import com.lib.ads.gma.ads.util.AppLogger
 import com.lib.ads.gma.ads.util.AppUtil
@@ -38,7 +37,7 @@ import kotlin.time.Duration.Companion.milliseconds
  * RewardAdManager, BannerAdManager, NativeAdManager) and shared cross-cutting helpers live in
  * [com.lib.ads.gma.ads.manager.AdsManager] — mirrors adlib's Ads/AdsManager split.
  */
-open class Ads private constructor() {
+open class AdsProvider private constructor() {
     lateinit var adConfig: AdSdkConfig
         private set
     private lateinit var application: Application
@@ -57,6 +56,9 @@ open class Ads private constructor() {
     }
 
     private val isMobileAdsInitializeCalled = AtomicBoolean(false)
+
+    @Volatile
+    private var deferredInitializer: (() -> Unit)? = null
     private val initializationStarted = AtomicBoolean(false)
     private val mobileAdsReady = CompletableDeferred<Unit>()
     private val initializationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -163,6 +165,26 @@ open class Ads private constructor() {
     }
 
     fun isInitialized(): Boolean = isMobileAdsReady()
+
+    /** Registered by [com.lib.ads.gma.ads.application.AdsMultiDexApplication] so callers can start a deferred initialization. */
+    internal fun setDeferredInitializer(initializer: () -> Unit) {
+        deferredInitializer = initializer
+    }
+
+    /**
+     * Starts the deferred initialization if the app turned off `initializeAdsOnCreate()` and has
+     * not initialized yet. Safe to call repeatedly; does nothing once initialization was requested.
+     */
+    fun initializeIfNeeded() {
+        if (isMobileAdsInitializeCalled.get()) return
+        val initializer = deferredInitializer
+        if (initializer == null) {
+            AppLogger.w(TAG, "initializeIfNeeded: no deferred initializer; call AdsMultiDexApplication.initializeAds()")
+            return
+        }
+        AppLogger.d(TAG, "initializeIfNeeded: starting deferred initialization")
+        initializer()
+    }
 
     fun isFullScreenAdShowing(): Boolean = adConfigOrNull?.fullScreenAdShowing == true
 
@@ -287,13 +309,13 @@ open class Ads private constructor() {
         }
 
         @Volatile
-        private var INSTANCE: Ads? = null
+        private var INSTANCE: AdsProvider? = null
 
         @JvmStatic
         @Synchronized
-        fun getInstance(): Ads = INSTANCE ?: Ads().also { INSTANCE = it }
+        fun getInstance(): AdsProvider = INSTANCE ?: AdsProvider().also { INSTANCE = it }
     }
 }
 
 /** Runs [block] once the SDK is ready, always on the main thread. Doesn't need an `Ads` receiver. */
-fun whenAdsReady(block: () -> Unit) = Ads.getInstance().runWhenReady(block)
+fun whenAdsReady(block: () -> Unit) = AdsProvider.getInstance().runWhenReady(block)

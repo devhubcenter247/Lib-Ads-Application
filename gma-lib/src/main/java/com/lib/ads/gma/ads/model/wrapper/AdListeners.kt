@@ -53,6 +53,12 @@ interface RewardAdListener {
     fun onRewarded(ad: ApRewardAd, item: ApRewardItem) = Unit
     fun onClicked(ad: ApRewardAd) = Unit
     fun onDismissed(ad: ApRewardAd) = Unit
+
+    /**
+     * Fired right after [onDismissed]; [earnedReward] is true only if [onRewarded] fired before close.
+     * Use it to pick the next UI step — grant the reward only in [onRewarded].
+     */
+    fun onRewardedAdClosed(ad: ApRewardAd, earnedReward: Boolean) = Unit
     fun onFailedToShow(error: ApAdError) = Unit
     fun onNotReady() = Unit
     fun onPaid(adValue: AdValue) = Unit

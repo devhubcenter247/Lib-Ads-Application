@@ -7,7 +7,7 @@ import android.widget.FrameLayout
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import com.facebook.shimmer.ShimmerFrameLayout
-import com.lib.ads.gma.ads.engine.Ads
+import com.lib.ads.gma.ads.engine.AdsProvider
 import com.lib.ads.gma.ads.helper.AdViewRenderer
 import com.lib.ads.gma.ads.helper.adnative.NativeAdRequestOptions
 import com.lib.ads.gma.ads.helper.adnative.NativeAdSpec
@@ -203,7 +203,7 @@ class NativeBannerHelper(
     }
 
     fun requestAds() {
-        Ads.getInstance().runWhenReady { holder.request() }
+        AdsProvider.getInstance().runWhenReady { holder.request() }
     }
 
     /** Stops loading and destroys the ad on screen; [requestAds] starts over. */
@@ -255,7 +255,7 @@ class NativeBannerHelper(
     }
 
     private fun isTesterOverlayEnabled(): Boolean =
-        Ads.getInstance().adConfigOrNull?.showMessageForTester == true
+        AdsProvider.getInstance().adConfigOrNull?.showMessageForTester == true
 
     private fun updateDebugOverlay(state: NativeAdDisplayState) {
         if (!isTesterOverlayEnabled()) return

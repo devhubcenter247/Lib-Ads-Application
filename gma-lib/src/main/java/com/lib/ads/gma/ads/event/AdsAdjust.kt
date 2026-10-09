@@ -5,7 +5,7 @@ import com.adjust.sdk.Adjust
 import com.adjust.sdk.AdjustAdRevenue
 import com.adjust.sdk.AdjustEvent
 import com.adjust.sdk.AdjustPlayStoreSubscription
-import com.lib.ads.gma.ads.engine.Ads
+import com.lib.ads.gma.ads.engine.AdsProvider
 import com.lib.ads.gma.ads.util.AppLogger
 import com.google.android.libraries.ads.mobile.sdk.common.AdValue
 
@@ -52,14 +52,14 @@ object AdsAdjust {
     @JvmStatic
     fun onTrackRevenuePurchase(revenue: Float, currency: String) {
         if (!enableAdjust) return
-        val eventName = Ads.getInstance().adConfig.adjustConfig?.eventNamePurchase ?: return
+        val eventName = AdsProvider.getInstance().adConfig.adjustConfig?.eventNamePurchase ?: return
         onTrackRevenue(eventName, revenue, currency)
     }
 
     @JvmStatic
     fun onTrackRevenuePurchase(revenue: Float, currency: String, productId: String, purchaseToken: String) {
         if (!enableAdjust) return
-        val eventName = Ads.getInstance().adConfig.adjustConfig?.eventNamePurchase ?: return
+        val eventName = AdsProvider.getInstance().adConfig.adjustConfig?.eventNamePurchase ?: return
         val event = AdjustEvent(eventName).apply {
             setRevenue(revenue.toDouble(), currency)
             setProductId(productId)
@@ -84,14 +84,14 @@ object AdsAdjust {
     @JvmStatic
     fun onTrackImpression() {
         if (!enableAdjust) return
-        val eventName = Ads.getInstance().adConfig.adjustConfig?.eventAdImpression?.takeIf { it.isNotEmpty() } ?: return
+        val eventName = AdsProvider.getInstance().adConfig.adjustConfig?.eventAdImpression?.takeIf { it.isNotEmpty() } ?: return
         Adjust.trackEvent(AdjustEvent(eventName))
     }
 
     @JvmStatic
     fun onTrackClickAds() {
         if (!enableAdjust) return
-        val eventName = Ads.getInstance().adConfig.adjustConfig?.eventAdClick?.takeIf { it.isNotEmpty() } ?: return
+        val eventName = AdsProvider.getInstance().adConfig.adjustConfig?.eventAdClick?.takeIf { it.isNotEmpty() } ?: return
         Adjust.trackEvent(AdjustEvent(eventName))
     }
 
@@ -107,7 +107,7 @@ object AdsAdjust {
     @JvmStatic
     fun logPaidAdImpressionValue(revenue: Double, currency: String) {
         if (!enableAdjust) return
-        val eventName = Ads.getInstance().adConfig.adjustConfig?.eventAdImpressionValue ?: return
+        val eventName = AdsProvider.getInstance().adConfig.adjustConfig?.eventAdImpressionValue ?: return
         Adjust.trackEvent(AdjustEvent(eventName).apply { setRevenue(revenue, currency) })
     }
 }

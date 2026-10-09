@@ -7,7 +7,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import com.lib.ads.gma.ads.dialog.PrepareLoadingAdsDialog
-import com.lib.ads.gma.ads.engine.Ads
+import com.lib.ads.gma.ads.engine.AdsProvider
 import com.lib.ads.gma.ads.event.AdsLogEventManager
 import com.lib.ads.gma.ads.helper.AdsHelper
 import com.lib.ads.gma.ads.helper.IAdsConfig
@@ -387,7 +387,7 @@ open class InterstitialAdHelper(
         if (activity == null) {
             logZ("showAd: no Activity to show on")
             waitingDialog.dismissSafely()
-            Ads.getInstance().setFullScreenAdShowing(false)
+            AdsProvider.getInstance().setFullScreenAdShowing(false)
             invokeAdListener { it.onNextAction() }
             unregisterOneShot(oneShotCallback)
             return
@@ -395,7 +395,7 @@ open class InterstitialAdHelper(
         if (activity.isFinishing || activity.isDestroyed) {
             logZ("showAd: Activity can no longer show an ad")
             waitingDialog.dismissSafely()
-            Ads.getInstance().setFullScreenAdShowing(false)
+            AdsProvider.getInstance().setFullScreenAdShowing(false)
             invokeAdListener { it.onNextAction() }
             unregisterOneShot(oneShotCallback)
             return
@@ -406,7 +406,7 @@ open class InterstitialAdHelper(
         if (intervalMs > 0 && timeSinceLastImpression < intervalMs) {
             logZ("showAd: Skipping due to interval restriction")
             waitingDialog.dismissSafely()
-            Ads.getInstance().setFullScreenAdShowing(false)
+            AdsProvider.getInstance().setFullScreenAdShowing(false)
             invokeAdListener { it.onNextAction() }
             unregisterOneShot(oneShotCallback)
             return
@@ -420,7 +420,7 @@ open class InterstitialAdHelper(
             override fun onAdShowedFullScreenContent() {
                // scope.launch() {
                     logZ("onAdShowedFullScreenContent")
-                    Ads.getInstance().setFullScreenAdShowing(true)
+                    AdsProvider.getInstance().setFullScreenAdShowing(true)
                     lastImpressionTime = System.currentTimeMillis()
                    // delay(AD_TRANSITION_COVER_DELAY.milliseconds)
                     waitingDialog.dismissSafely()
@@ -432,7 +432,7 @@ open class InterstitialAdHelper(
                 scope.launch {
                     logZ("onAdDismissedFullScreenContent")
                     waitingDialog.dismissSafely()
-                    Ads.getInstance().setFullScreenAdShowing(false)
+                    AdsProvider.getInstance().setFullScreenAdShowing(false)
                     dismissLoadingDialog()
                     interstitialAdLocal = null
                     loadedAdUnitId = null
@@ -451,7 +451,7 @@ open class InterstitialAdHelper(
                 scope.launch {
                     logZ("onAdFailedToShowFullScreenContent: ${fullScreenContentError.message}")
                     waitingDialog.dismissSafely()
-                    Ads.getInstance().setFullScreenAdShowing(false)
+                    AdsProvider.getInstance().setFullScreenAdShowing(false)
                     dismissLoadingDialog()
                     interstitialAdLocal = null
                     loadedAdUnitId = null
@@ -496,7 +496,7 @@ open class InterstitialAdHelper(
         if (activity.isFinishing || activity.isDestroyed || !isAppInForeground()) {
             logZ("showAd: Activity is no longer able to show an interstitial")
             waitingDialog.dismissSafely()
-            Ads.getInstance().setFullScreenAdShowing(false)
+            AdsProvider.getInstance().setFullScreenAdShowing(false)
             dismissLoadingDialog()
             invokeAdListener { it.onNextAction() }
             unregisterOneShot(oneShotCallback)
@@ -508,7 +508,7 @@ open class InterstitialAdHelper(
         } catch (e: Exception) {
             logZ("showAd: failed to show interstitial ad: ${e.message}")
             waitingDialog.dismissSafely()
-            Ads.getInstance().setFullScreenAdShowing(false)
+            AdsProvider.getInstance().setFullScreenAdShowing(false)
             dismissLoadingDialog()
             interstitialAdLocal = null
             loadedAdUnitId = null

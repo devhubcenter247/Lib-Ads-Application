@@ -58,6 +58,9 @@ class AdSdkConfig(
     /** Shows debug notices for test ad units in development builds. */
     var showMessageForTester: Boolean = false
 
+    /** Enables verbose SDK logs (ads + billing). Applied by AdsMultiDexApplication on create. */
+    var enableLog: Boolean = false
+
     /** Runtime fullscreen state shared by app-open and fullscreen ad flows. */
     @Volatile
     var fullScreenAdShowing: Boolean = false

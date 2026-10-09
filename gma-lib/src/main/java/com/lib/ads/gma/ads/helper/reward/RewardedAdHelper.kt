@@ -4,7 +4,7 @@ import android.app.Activity
 import android.content.Context
 import android.os.Looper
 import androidx.lifecycle.LifecycleOwner
-import com.lib.ads.gma.ads.engine.Ads
+import com.lib.ads.gma.ads.engine.AdsProvider
 import com.lib.ads.gma.ads.manager.RewardAdManager
 import com.lib.ads.gma.ads.manager.FullScreenAdLruCache
 import com.lib.ads.gma.ads.helper.canRequestFullScreenAds
@@ -17,6 +17,7 @@ import com.lib.ads.gma.ads.model.wrapper.ApRewardAd
 import com.lib.ads.gma.ads.model.wrapper.ApRewardItem
 import com.lib.ads.gma.ads.model.wrapper.RewardAdListener
 import com.lib.ads.gma.ads.util.AdsDebugLogger
+import com.google.android.libraries.ads.mobile.sdk.common.AdValue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -90,7 +91,7 @@ open class RewardedAdHelper(
     fun preloadAds(tag: String? = config.preloadTag) = preload(tag)
 
     fun load(activity: Activity? = lastActivity) {
-        if (Looper.myLooper() != Looper.getMainLooper()) { Ads.MAIN.post { load(activity) }; return }
+        if (Looper.myLooper() != Looper.getMainLooper()) { AdsProvider.MAIN.post { load(activity) }; return }
         lastActivity = activity ?: lastActivity
         if (config.listId.isEmpty() || !canRequestFullScreenAds(appContext, config.canShowAds)) { emit { it.onNotReady() }; return }
         if (loadJob?.isActive == true || currentAd?.isReady() == true) return
@@ -126,7 +127,7 @@ open class RewardedAdHelper(
     }
 
     fun forceShow(activity: Activity, callback: RewardAdListener? = null, waitingDialog: android.app.Dialog? = null) {
-        if (Looper.myLooper() != Looper.getMainLooper()) { Ads.MAIN.post { forceShow(activity, callback, waitingDialog) }; return }
+        if (Looper.myLooper() != Looper.getMainLooper()) { AdsProvider.MAIN.post { forceShow(activity, callback, waitingDialog) }; return }
         lastActivity = activity
         val ad = currentAd
         if (ad == null || !ad.isReady()) { callback?.onNotReady(); return }
@@ -154,7 +155,11 @@ open class RewardedAdHelper(
                 emit { it.onImpression(ad) }; callback?.onImpression(ad)
             }
             override fun onClicked(ad: ApRewardAd) { emit { it.onClicked(ad) }; callback?.onClicked(ad) }
+            override fun onPaid(adValue: AdValue) { emit { it.onPaid(adValue) }; callback?.onPaid(adValue) }
             override fun onRewarded(ad: ApRewardAd, item: ApRewardItem) { emit { it.onRewarded(ad, item) }; callback?.onRewarded(ad, item) }
+            override fun onRewardedAdClosed(ad: ApRewardAd, earnedReward: Boolean) {
+                emit { it.onRewardedAdClosed(ad, earnedReward) }; callback?.onRewardedAdClosed(ad, earnedReward)
+            }
         }, waitingDialog)
         currentAd = null
     }
@@ -168,7 +173,7 @@ open class RewardedAdHelper(
         callback: RewardAdListener? = null,
     ) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            Ads.runOnMain { waitLoadAndShow(activity, enabled, timeoutMs, showWhenReturnFromBackground, prepareLoadingMs, callback) }
+            AdsProvider.runOnMain { waitLoadAndShow(activity, enabled, timeoutMs, showWhenReturnFromBackground, prepareLoadingMs, callback) }
             return
         }
         if (!enabled || !config.canShowAds) {
@@ -203,6 +208,13 @@ open class RewardedAdHelper(
                         override fun onDismissed(ad: ApRewardAd) { dialog.dismissSafely(); callback?.onDismissed(ad) }
                         override fun onFailedToShow(error: ApAdError) { dialog.dismissSafely(); callback?.onFailedToShow(error) }
                         override fun onRewarded(ad: ApRewardAd, item: ApRewardItem) { callback?.onRewarded(ad, item) }
+                        override fun onRewardedAdClosed(ad: ApRewardAd, earnedReward: Boolean) {
+                            callback?.onRewardedAdClosed(ad, earnedReward)
+                        }
+                        override fun onImpression(ad: ApRewardAd) { callback?.onImpression(ad) }
+                        override fun onClicked(ad: ApRewardAd) { callback?.onClicked(ad) }
+                        override fun onPaid(adValue: AdValue) { callback?.onPaid(adValue) }
+                        override fun onNotReady() { dialog.dismissSafely(); callback?.onNotReady() }
                     }, dialog)
                 },
                 onDropped = {
@@ -238,7 +250,7 @@ open class RewardedAdHelper(
         listeners.forEach(action)
     }
     fun destroy() {
-        if (Looper.myLooper() != Looper.getMainLooper()) { Ads.MAIN.post { destroy() }; return }
+        if (Looper.myLooper() != Looper.getMainLooper()) { AdsProvider.MAIN.post { destroy() }; return }
         pendingShowGate?.cancel(); loadJob?.cancel(); currentAd = null; listeners.clear()
     }
 }

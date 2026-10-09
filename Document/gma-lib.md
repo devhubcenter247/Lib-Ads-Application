@@ -73,8 +73,10 @@ class MyApplication : AdsMultiDexApplication() {
 
 Không tự gọi `MobileAds.initialize()` hay `Ads.getInstance().initialize()` thêm lần nữa.
 
-**Consent trước rồi mới init SDK:** override `initializeAdsOnCreate() = false`, rồi gọi
-`(application as AdsMultiDexApplication).initializeAds { /* SDK ready */ }` sau khi UMP xong.
+**Consent trước rồi mới init SDK:** override `initializeAdsOnCreate() = false`. Sau khi UMP xong,
+gọi `AppPurchase.getInstance().getBillingAndAwaitInitAds(...)` (mục 11.3) — từ 1.2.4 hàm này tự khởi
+tạo SDK nếu chưa init. Không dùng billing thì gọi `Ads.getInstance().initializeIfNeeded()` hoặc
+`(application as AdsMultiDexApplication).initializeAds { /* SDK ready */ }`.
 
 ### 1.3 `AdSdkConfig`
 
@@ -803,6 +805,10 @@ AppPurchase.getInstance().getBillingAndAwaitInitAds(
     if (AppPurchase.getInstance().isPurchased()) openMain() else loadSplashAds()
 }
 ```
+
+Từ 1.2.4, `getBillingAndAwaitInitAds` tự gọi `Ads.getInstance().initializeIfNeeded()` trước khi chờ,
+nên app tắt `initializeAdsOnCreate()` không cần gọi `initializeAds()` riêng. Chỉ gọi hàm này sau khi
+UMP đã xong.
 
 Chỉ cần billing: `setBillingListener(timeoutMs) { code -> }` (mặc định 5 s). Listener luôn được gọi
 đúng một lần — thành công, lỗi hoặc hết thời gian.

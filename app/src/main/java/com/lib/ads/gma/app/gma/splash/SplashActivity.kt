@@ -48,7 +48,7 @@ import com.lib.ads.gma.ads.model.wrapper.NativeAdListener
 import com.lib.ads.gma.app.ads.view.NativeMediumCtaTop
 import com.lib.ads.gma.app.ads.view.ShimmerMediumCtaTopView
 import com.lib.ads.gma.app.base.BaseActivity
-import com.lib.ads.gma.ads.engine.Ads
+import com.lib.ads.gma.ads.engine.AdsProvider
 import com.lib.ads.gma.app.gma.MainActivity
 import com.lib.ads.gma.app.style.AppViewTheme
 import com.lib.ads.gma.app.style.backgroundResource
@@ -109,7 +109,7 @@ class SplashActivity : BaseActivity() {
             val canRequest = requestUmp()
             if (canRequest) {
                 Log.d("SplashRequest", "Waiting for GMA SDK initialized in Application.onCreate")
-                Ads.getInstance().awaitReady { isSuccess ->
+                AdsProvider.getInstance().awaitReady { isSuccess ->
                     if (isSuccess) {
                         Log.d("SplashRequest", "GMA SDK ready; starting native splash request")
                         initAds()

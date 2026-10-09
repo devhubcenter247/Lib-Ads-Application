@@ -23,7 +23,7 @@ import com.google.android.libraries.ads.mobile.sdk.common.FullScreenContentError
 import com.google.android.libraries.ads.mobile.sdk.common.PreloadConfiguration
 import com.lib.ads.gma.ads.billing.AppPurchase
 import com.lib.ads.gma.ads.dialog.ResumeLoadingDialog
-import com.lib.ads.gma.ads.engine.Ads
+import com.lib.ads.gma.ads.engine.AdsProvider
 import com.lib.ads.gma.ads.event.AdsLogEventManager
 import com.lib.ads.gma.ads.helper.extension.extractAdUnitIdOrNull
 import com.lib.ads.gma.ads.listener.AdResumePreShowListener
@@ -86,7 +86,7 @@ class AppOpenManager private constructor() : Application.ActivityLifecycleCallba
      * way it already is for interstitial/rewarded preloading elsewhere in this library.
      */
     fun init(application: Application, appOpenAdId: String, maxAdAgeHours: Int = 4, placementId: Long? = null) {
-        if (Looper.myLooper() != Looper.getMainLooper()) { Ads.MAIN.post { init(application, appOpenAdId, maxAdAgeHours, placementId) }; return }
+        if (Looper.myLooper() != Looper.getMainLooper()) { AdsProvider.MAIN.post { init(application, appOpenAdId, maxAdAgeHours, placementId) }; return }
         val alreadyRegistered = isInitialized
         isInitialized = true
         disableAdResumeByClickAction = false
@@ -101,7 +101,7 @@ class AppOpenManager private constructor() : Application.ActivityLifecycleCallba
     }
 
     fun init(application: Application, appOpenAdIdList: List<String>, maxAdAgeHours: Int = 4, placementId: Long? = null) {
-        if (Looper.myLooper() != Looper.getMainLooper()) { Ads.MAIN.post { init(application, appOpenAdIdList, maxAdAgeHours, placementId) }; return }
+        if (Looper.myLooper() != Looper.getMainLooper()) { AdsProvider.MAIN.post { init(application, appOpenAdIdList, maxAdAgeHours, placementId) }; return }
         val alreadyRegistered = isInitialized
         isInitialized = true
         disableAdResumeByClickAction = false
@@ -218,7 +218,7 @@ class AppOpenManager private constructor() : Application.ActivityLifecycleCallba
     }
 
     fun showAdIfAvailable() {
-        if (Looper.myLooper() != Looper.getMainLooper()) { Ads.MAIN.post { showAdIfAvailable() }; return }
+        if (Looper.myLooper() != Looper.getMainLooper()) { AdsProvider.MAIN.post { showAdIfAvailable() }; return }
         val currentActivity = getCurrentActivity()
         if (currentActivity == null || AppPurchase.getInstance().isPurchased()) {
             if (appOpenAdEventCallback != null && enableScreenContentCallback) {
@@ -351,7 +351,7 @@ class AppOpenManager private constructor() : Application.ActivityLifecycleCallba
      * the pool the moment [showResumeAds] needs one (e.g. a quick background/foreground flip).
      */
     private fun loadAppOpenResume() {
-        Ads.getInstance().runWhenReady {
+        AdsProvider.getInstance().runWhenReady {
             if (isEnableList) {
                 appResumeAdIdList.orEmpty().forEach(::startPreload)
             } else {
@@ -389,18 +389,18 @@ class AppOpenManager private constructor() : Application.ActivityLifecycleCallba
         ad.adEventCallback = object : AppOpenAdEventCallback {
             override fun onAdDismissedFullScreenContent() {
                 isShowingAd = false; hideDialogLoading()
-                Ads.getInstance().setFullScreenAdShowing(false)
+                AdsProvider.getInstance().setFullScreenAdShowing(false)
                 loadAppOpenResume()
             }
             override fun onAdFailedToShowFullScreenContent(fullScreenContentError: FullScreenContentError) {
                 isShowingAd = false; hideDialogLoading()
-                Ads.getInstance().setFullScreenAdShowing(false)
+                AdsProvider.getInstance().setFullScreenAdShowing(false)
                 loadAppOpenResume()
             }
             override fun onAdShowedFullScreenContent() {
                 isShowingAd = true
                 Handler(Looper.getMainLooper()).postDelayed({ hideDialogLoading() }, AD_TRANSITION_COVER_DELAY_MS)
-                Ads.getInstance().setFullScreenAdShowing(true)
+                AdsProvider.getInstance().setFullScreenAdShowing(true)
             }
             override fun onAdClicked() { AdsLogEventManager.logClickAdsEvent(activity, adUnitId) }
             override fun onAdImpression() { AdsLogEventManager.onTrackImpression(activity) }

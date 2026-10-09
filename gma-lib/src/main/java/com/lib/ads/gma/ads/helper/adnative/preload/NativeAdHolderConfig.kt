@@ -23,7 +23,7 @@ import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.lib.ads.gma.ads.engine.Ads
+import com.lib.ads.gma.ads.engine.AdsProvider
 import com.lib.ads.gma.ads.model.wrapper.ApAdError
 import com.lib.ads.gma.ads.model.wrapper.ApNativeAd
 import com.lib.ads.gma.ads.model.wrapper.NativeAdListener
@@ -362,7 +362,7 @@ fun NativeAdCard(
             }
         }
 
-        if (Ads.getInstance().adConfigOrNull?.showMessageForTester == true) {
+        if (AdsProvider.getInstance().adConfigOrNull?.showMessageForTester == true) {
             val debugInfo = remember(state, preloadState, loadTimeMs, lastError) {
                 AdDebugInfo(
                     adType = "Native",

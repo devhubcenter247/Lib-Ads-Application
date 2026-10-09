@@ -3,7 +3,7 @@ package com.lib.ads.gma.ads.application
 import androidx.multidex.MultiDexApplication
 import com.google.android.libraries.ads.mobile.sdk.common.ExperimentalApi
 import com.lib.ads.gma.ads.config.AdSdkConfig
-import com.lib.ads.gma.ads.engine.Ads
+import com.lib.ads.gma.ads.engine.AdsProvider
 import com.lib.ads.gma.ads.event.FirebaseAnalyticsUtil
 import com.lib.ads.gma.ads.util.AppUtil
 import com.lib.ads.gma.ads.util.SharePreferenceUtils
@@ -20,7 +20,7 @@ abstract class AdsMultiDexApplication : MultiDexApplication() {
     protected open fun initializeAdsOnCreate(): Boolean = true
 
     fun initializeAds(onReady: (() -> Unit)? = null) {
-        Ads.getInstance().initialize(this, adSdkConfig, onReady)
+        AdsProvider.getInstance().initialize(this, adSdkConfig, onReady)
     }
 
     override fun onCreate() {
@@ -29,6 +29,11 @@ abstract class AdsMultiDexApplication : MultiDexApplication() {
         check(!adSdkConfig.appAdId.isNullOrBlank()) {
             "AdsMultiDexApplication.createAdSdkConfig() must provide appAdId"
         }
+        // Apply the environment synchronously: Ads.initialize() configures on a coroutine and may
+        // be deferred (consent-first apps), but billing reads VARIANT_DEV as soon as it starts.
+        AppUtil.VARIANT_DEV = adSdkConfig.isVariantDev
+        if (adSdkConfig.enableLog) AdsProvider.getInstance().isEnableAdsLog = true
+        AdsProvider.getInstance().setDeferredInitializer { initializeAds() }
         if (initializeAdsOnCreate()) {
             initializeAds()
         }

@@ -41,7 +41,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.lib.ads.gma.BuildConfig
 import com.lib.ads.gma.R
-import com.lib.ads.gma.ads.engine.Ads
+import com.lib.ads.gma.ads.engine.AdsProvider
 import com.lib.ads.gma.ads.helper.adnative.preload.NativeAdCard
 import com.lib.ads.gma.ads.helper.adnative.preload.NativeAdHolderConfig
 import com.lib.ads.gma.ads.helper.adnative.preload.NativeAdPreloadHolderOptions
@@ -89,7 +89,7 @@ import kotlin.time.Duration.Companion.milliseconds
  * this before any startActivity()/finish() here.
  */
 private suspend fun awaitAdNotShowing() {
-    while (Ads.getInstance().isFullScreenAdShowing()) {
+    while (AdsProvider.getInstance().isFullScreenAdShowing()) {
         delay(100.milliseconds)
     }
 }

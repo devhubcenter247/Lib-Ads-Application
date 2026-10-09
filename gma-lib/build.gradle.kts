@@ -153,7 +153,7 @@ afterEvaluate {
                 from(components["release"])
                 groupId = "com.lib"
                 artifactId = "gmasdk"
-                version = "1.2.2"
+                version = "1.2.4"
             }
         }
         repositories {
@@ -163,7 +163,7 @@ afterEvaluate {
                 name = "GitHubPackages"
                 url = uri("https://maven.pkg.github.com/dbv0610/AdsApplication")
                 credentials {
-                    username = "dbv0610"
+                    username = gprUser
                     password = gprKey
                 }
             }
