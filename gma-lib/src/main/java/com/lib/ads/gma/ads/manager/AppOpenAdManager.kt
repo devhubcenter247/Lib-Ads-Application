@@ -98,14 +98,13 @@ object AppOpenAdManager {
             handler.postDelayed(readyRunnable!!, remaining.coerceAtLeast(0L))
         }
 
-        lateinit var poll: Runnable
-        poll = Runnable {
+        val poll = Runnable {
             if (finished) return@Runnable
             fun load(index: Int) {
                 if (index >= ids.size) { if (!finished) listener.onNextAction(); return }
                 AppOpenAd.load(AdsManager.getAdRequest(ids[index], placementId, skipUninitializedAdapters), object : AdLoadCallback<AppOpenAd> {
                     override fun onAdLoaded(ad: AppOpenAd) = onAdReady(ad)
-                    override fun onAdFailedToLoad(error: LoadAdError) { load(index + 1) }
+                    override fun onAdFailedToLoad(adError: LoadAdError) { load(index + 1) }
                 })
             }
             load(0)

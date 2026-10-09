@@ -28,6 +28,7 @@ object AdsLogEventManager {
         }
         logEventWithAds(context, adValue.valueMicros.toFloat(), precisionInt, adUnitId, mediationAdapterClassName)
         AdsAdjust.pushTrackEvent(adValue, adSourceName)
+        AdsAppsflyer.logPaidAdImpression(context, adValue, responseInfo, adType)
     }
 
     @JvmStatic
@@ -38,6 +39,7 @@ object AdsLogEventManager {
         FirebaseAnalyticsUtil.logClickAdsEvent(context, bundle)
         FacebookEventUtils.logClickAdsEvent(context, bundle)
         AdsAdjust.onTrackClickAds()
+        AdsAppsflyer.logEvent(context, "ad_click", bundle)
     }
 
     @JvmStatic
@@ -46,6 +48,7 @@ object AdsLogEventManager {
         val bundle = Bundle().apply { putFloat("value", currentTotalRevenue) }
         FirebaseAnalyticsUtil.logCurrentTotalRevenueAd(context, eventName, bundle)
         FacebookEventUtils.logCurrentTotalRevenueAd(context, eventName, bundle)
+        AdsAppsflyer.logEvent(context, eventName, bundle)
     }
 
     @JvmStatic
@@ -57,6 +60,7 @@ object AdsLogEventManager {
             val bundle = Bundle().apply { putFloat("value", revenue / 1_000_000) }
             FirebaseAnalyticsUtil.logTotalRevenue001Ad(context, bundle)
             FacebookEventUtils.logTotalRevenue001Ad(context, bundle)
+            AdsAppsflyer.logEvent(context, "paid_ad_impression_value_001", bundle)
         }
     }
 
@@ -99,6 +103,7 @@ object AdsLogEventManager {
     @JvmStatic
     fun onTrackRevenuePurchase(revenue: Float, currency: String, productId: String, purchaseToken: String, typeIAP: Int) {
         AdsAdjust.onTrackRevenuePurchase(revenue, currency, productId, purchaseToken)
+        AdsAppsflyer.logPurchase(revenue.toDouble(), currency, productId)
     }
 
     @JvmStatic
@@ -114,6 +119,7 @@ object AdsLogEventManager {
         AdsAdjust.onTrackImpression()
         FirebaseAnalyticsUtil.logAdImpression(context)
         FacebookEventUtils.logAdImpression(context)
+        AdsAppsflyer.logEvent(context, "ad_impression")
     }
 
     private fun logEventWithAds(context: Context, revenue: Float, precision: Int, adUnitId: String, network: String?) {
@@ -129,6 +135,7 @@ object AdsLogEventManager {
         logPaidAdImpressionValue(context, revenue / 1_000_000.0, precision, adUnitId, network)
         FirebaseAnalyticsUtil.logEventWithAds(context, params)
         FacebookEventUtils.logEventWithAds(context, params)
+        AdsAppsflyer.logEvent(context, "paid_ad_impression", params)
         SharePreferenceUtils.updateCurrentTotalRevenueAd(context, revenue)
         logCurrentTotalRevenueAd(context, "event_current_total_revenue_ad")
         AppUtil.currentTotalRevenue001Ad += revenue
@@ -149,5 +156,6 @@ object AdsLogEventManager {
         AdsAdjust.logPaidAdImpressionValue(value, "USD")
         FirebaseAnalyticsUtil.logPaidAdImpressionValue(context, params)
         FacebookEventUtils.logPaidAdImpressionValue(context, params)
+        AdsAppsflyer.logEvent(context, "paid_ad_impression_value", params)
     }
 }

@@ -24,6 +24,8 @@ build/
 local.properties
 
 # Android Studio
+.idea/
+*/.idea
 /.idea/caches/
 /.idea/libraries/
 /.idea/modules.xml
@@ -55,3 +57,8 @@ ehthumbs.db
 
 # Captures
 /captures
+/reverse-output
+/gma-lib/src/test
+/gma-lib/src/androidTest
+gma-lib/src/test/java/com/lib/ads/gma/NativeAdPreloadConfigTest.kt
+*.unitTest
