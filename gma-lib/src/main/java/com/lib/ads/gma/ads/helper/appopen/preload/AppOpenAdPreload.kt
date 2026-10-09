@@ -4,7 +4,7 @@ import android.os.Looper
 import com.google.android.libraries.ads.mobile.sdk.appopen.AppOpenAd
 import com.google.android.libraries.ads.mobile.sdk.common.AdLoadCallback
 import com.google.android.libraries.ads.mobile.sdk.common.LoadAdError
-import com.lib.ads.gma.ads.engine.Ads
+import com.lib.ads.gma.ads.engine.AdsProvider
 import com.lib.ads.gma.ads.engine.whenAdsReady
 import com.lib.ads.gma.ads.helper.fullscreen.preload.FullScreenAdStore
 import com.lib.ads.gma.ads.helper.fullscreen.preload.WeightedAdUnit
@@ -167,7 +167,7 @@ object AppOpenAdPreload {
     }
 
     private fun runOnMain(block: () -> Unit) {
-        if (Looper.myLooper() === Looper.getMainLooper()) block() else Ads.MAIN.post(block)
+        if (Looper.myLooper() === Looper.getMainLooper()) block() else AdsProvider.MAIN.post(block)
     }
 
     private interface AppOpenLoadCallback {

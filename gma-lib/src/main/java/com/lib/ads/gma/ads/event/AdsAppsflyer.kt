@@ -9,7 +9,7 @@ import com.appsflyer.AppsFlyerLib
 import com.appsflyer.MediationNetwork
 import com.google.android.libraries.ads.mobile.sdk.common.AdValue
 import com.google.android.libraries.ads.mobile.sdk.common.ResponseInfo
-import com.lib.ads.gma.ads.engine.Ads
+import com.lib.ads.gma.ads.engine.AdsProvider
 import com.lib.ads.gma.ads.helper.extension.extractAdUnitIdOrNull
 import com.lib.ads.gma.ads.model.AdType
 import com.lib.ads.gma.ads.util.AppLogger
@@ -117,7 +117,7 @@ object AdsAppsflyer {
         currency: String,
         productId: String,
     ) {
-        val context = Ads.getInstance().applicationContextOrNull() ?: return
+        val context = AdsProvider.getInstance().applicationContextOrNull() ?: return
         logPurchase(context, revenue, currency, productId)
     }
 

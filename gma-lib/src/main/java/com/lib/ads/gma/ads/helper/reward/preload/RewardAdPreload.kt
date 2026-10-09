@@ -1,7 +1,7 @@
 package com.lib.ads.gma.ads.helper.reward.preload
 
 import android.os.Looper
-import com.lib.ads.gma.ads.engine.Ads
+import com.lib.ads.gma.ads.engine.AdsProvider
 import com.lib.ads.gma.ads.engine.whenAdsReady
 import com.lib.ads.gma.ads.helper.fullscreen.preload.FullScreenAdStore
 import com.lib.ads.gma.ads.helper.fullscreen.preload.WeightedAdUnit
@@ -210,7 +210,7 @@ object RewardAdPreload {
     }
 
     private fun runOnMain(block: () -> Unit) {
-        if (Looper.myLooper() === Looper.getMainLooper()) block() else Ads.MAIN.post(block)
+        if (Looper.myLooper() === Looper.getMainLooper()) block() else AdsProvider.MAIN.post(block)
     }
 }
 

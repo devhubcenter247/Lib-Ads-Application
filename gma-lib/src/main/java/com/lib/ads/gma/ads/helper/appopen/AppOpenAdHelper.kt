@@ -375,8 +375,6 @@ class AppOpenAdHelper(
                 scope.launch {
                     dialog.dismissSafely()
                     AdsProvider.getInstance().setFullScreenAdShowing(false)
-                    failShow(callback, error.message)
-                    Ads.getInstance().setFullScreenAdShowing(false)
                     failShow(callback, fullScreenContentError.message)
                 }
             }
