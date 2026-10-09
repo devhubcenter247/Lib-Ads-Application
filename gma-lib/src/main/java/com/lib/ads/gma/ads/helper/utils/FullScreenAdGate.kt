@@ -3,7 +3,7 @@ package com.lib.ads.gma.ads.helper.fullscreen
 import android.app.Activity
 import android.app.Dialog
 import com.lib.ads.gma.ads.dialog.PrepareLoadingAdsDialog
-import com.lib.ads.gma.ads.engine.Ads
+import com.lib.ads.gma.ads.engine.AdsProvider
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
@@ -50,7 +50,7 @@ internal fun runWhenAppForeground(
     }
 
     // Deferring: suppress an app-open resume ad so it does not stack on the return event.
-    Ads.getInstance().setFullScreenAdShowing(true)
+    AdsProvider.getInstance().setFullScreenAdShowing(true)
     val lifecycle = ProcessLifecycleOwner.get().lifecycle
     val observer = object : DefaultLifecycleObserver {
         override fun onStart(owner: LifecycleOwner) {
@@ -62,7 +62,7 @@ internal fun runWhenAppForeground(
     return ForegroundGateHandle {
         lifecycle.removeObserver(observer)
         if (done.compareAndSet(false, true)) {
-            Ads.getInstance().setFullScreenAdShowing(false)
+            AdsProvider.getInstance().setFullScreenAdShowing(false)
             onDropped()
         }
     }

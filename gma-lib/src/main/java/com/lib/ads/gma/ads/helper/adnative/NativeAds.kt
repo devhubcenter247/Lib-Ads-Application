@@ -2,7 +2,7 @@ package com.lib.ads.gma.ads.helper.adnative
 
 import android.app.Activity
 import android.util.LruCache
-import com.lib.ads.gma.ads.engine.Ads
+import com.lib.ads.gma.ads.engine.AdsProvider
 import com.lib.ads.gma.ads.manager.NativeAdManager
 import com.lib.ads.gma.ads.model.wrapper.ApAdError
 import com.lib.ads.gma.ads.model.wrapper.ApNativeAd
@@ -162,7 +162,7 @@ object NativeAds {
         state(tag).value = PreloadBufferState.Loading(cache.size, requestedTarget)
         preloadStartedAt[tag] = System.currentTimeMillis()
         preloadJobs[tag] = scope.launch {
-            val context = Ads.getInstance().applicationContextOrNull()
+            val context = AdsProvider.getInstance().applicationContextOrNull()
             if (context == null || adUnitIds.isEmpty()) {
                 state(tag).value =
                     PreloadBufferState.Error("No application context or ad unit for tag=$tag")

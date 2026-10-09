@@ -1,6 +1,6 @@
 package com.lib.ads.gma.ads.helper.adnative.preload
 
-import com.lib.ads.gma.ads.engine.Ads
+import com.lib.ads.gma.ads.engine.AdsProvider
 import com.lib.ads.gma.ads.helper.adnative.NativeAdSpec
 import com.lib.ads.gma.ads.helper.adnative.NativeAds
 import com.lib.ads.gma.ads.helper.adnative.PreloadBufferState
@@ -64,7 +64,7 @@ internal class NativePreloadRequestController(
     /** Wires click/impression/paid tracking onto the SDK object, relayed to registered callbacks. */
     fun bindAdCallback(ad: ApNativeAd) {
         val nativeAd = ad.nativeAd ?: return
-        val context = Ads.getInstance().applicationContextOrNull() ?: return
+        val context = AdsProvider.getInstance().applicationContextOrNull() ?: return
         NativeAdManager.bindNativeAdEventCallback(context, nativeAd, callbackRelay)
     }
 
@@ -115,7 +115,7 @@ internal class NativePreloadRequestController(
         }
 
         // Loading never needs an Activity; the SDK only needs the application context.
-        val context = Ads.getInstance().applicationContextOrNull()
+        val context = AdsProvider.getInstance().applicationContextOrNull()
         if (ids.isEmpty() || context == null) {
             loadInFlight = false
             publishFailure(ApAdError("No fallback ad unit ids and nothing preloaded"), previousAd)

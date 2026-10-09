@@ -12,7 +12,7 @@ import com.google.android.libraries.ads.mobile.sdk.common.AdValue
 import com.google.android.libraries.ads.mobile.sdk.common.FullScreenContentError
 import com.lib.ads.gma.ads.billing.AppPurchase
 import com.lib.ads.gma.ads.dialog.PrepareLoadingAdsDialog
-import com.lib.ads.gma.ads.engine.Ads
+import com.lib.ads.gma.ads.engine.AdsProvider
 import com.lib.ads.gma.ads.engine.whenAdsReady
 import com.lib.ads.gma.ads.event.AdsLogEventManager
 import com.lib.ads.gma.ads.helper.canRequestFullScreenAds
@@ -68,7 +68,7 @@ object AppOpenAdManager {
     ) = whenAdsReady {
         clearTimers()
         openAdLoaded = null
-        val appContext = Ads.getInstance().applicationContextOrNull()
+        val appContext = AdsProvider.getInstance().applicationContextOrNull()
         if (ids.isEmpty() || appContext == null || !canRequestFullScreenAds(appContext, true)) {
             listener.onNextAction()
             return@whenAdsReady
@@ -147,7 +147,7 @@ object AppOpenAdManager {
         if (activity.isFinishing || activity.isDestroyed) {
             AppLogger.w(TAG, "showAd: Activity can no longer show an ad")
             waitingDialog.dismissSafely()
-            Ads.getInstance().setFullScreenAdShowing(false)
+            AdsProvider.getInstance().setFullScreenAdShowing(false)
             oneShotCallback?.onNextAction()
             return
         }
@@ -156,7 +156,7 @@ object AppOpenAdManager {
             override fun onAdShowedFullScreenContent() {
                 scope.launch {
                     AppLogger.w(TAG, "onAdShowedFullScreenContent")
-                    Ads.getInstance().setFullScreenAdShowing(true)
+                    AdsProvider.getInstance().setFullScreenAdShowing(true)
                     delay(AD_TRANSITION_COVER_DELAY.milliseconds)
                     waitingDialog.dismissSafely()
                     dismissLoadingDialog()
@@ -167,7 +167,7 @@ object AppOpenAdManager {
                 scope.launch {
                     AppLogger.w(TAG, "onAdDismissedFullScreenContent")
                     waitingDialog.dismissSafely()
-                    Ads.getInstance().setFullScreenAdShowing(false)
+                    AdsProvider.getInstance().setFullScreenAdShowing(false)
                     dismissLoadingDialog()
                     oneShotCallback?.onDismissed()
                 }
@@ -180,7 +180,7 @@ object AppOpenAdManager {
                         "onAdFailedToShowFullScreenContent: ${fullScreenContentError.message}"
                     )
                     waitingDialog.dismissSafely()
-                    Ads.getInstance().setFullScreenAdShowing(false)
+                    AdsProvider.getInstance().setFullScreenAdShowing(false)
                     dismissLoadingDialog()
                     oneShotCallback?.onFailedToShow(ApAdError(fullScreenContentError))
                     oneShotCallback?.onNextAction()
@@ -221,7 +221,7 @@ object AppOpenAdManager {
             if (activity.isFinishing || activity.isDestroyed || !isAppInForeground()) {
                 AppLogger.w(TAG, "showAd: Activity is no longer able to show an interstitial")
                 waitingDialog.dismissSafely()
-                Ads.getInstance().setFullScreenAdShowing(false)
+                AdsProvider.getInstance().setFullScreenAdShowing(false)
                 dismissLoadingDialog()
                 oneShotCallback?.onNextAction()
                 return@launch
@@ -232,7 +232,7 @@ object AppOpenAdManager {
             } catch (e: Exception) {
                 AppLogger.w(TAG, "showAd: failed to show interstitial ad: ${e.message}")
                 waitingDialog.dismissSafely()
-                Ads.getInstance().setFullScreenAdShowing(false)
+                AdsProvider.getInstance().setFullScreenAdShowing(false)
                 dismissLoadingDialog()
                 oneShotCallback?.onFailedToShow(ApAdError(e.message ?: "Failed to show ad"))
             }
@@ -272,7 +272,7 @@ object AppOpenAdManager {
         openAdLoaded = null
         showing = false
         dialog.dismissSafely()
-        Ads.getInstance().setFullScreenAdShowing(false)
+        AdsProvider.getInstance().setFullScreenAdShowing(false)
     }
 
     private fun clearTimers() {

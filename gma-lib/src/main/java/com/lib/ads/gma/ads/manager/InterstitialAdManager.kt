@@ -13,7 +13,7 @@ import com.google.android.libraries.ads.mobile.sdk.interstitial.InterstitialAd
 import com.google.android.libraries.ads.mobile.sdk.interstitial.InterstitialAdEventCallback
 import com.lib.ads.gma.ads.billing.AppPurchase
 import com.lib.ads.gma.ads.dialog.PrepareLoadingAdsDialog
-import com.lib.ads.gma.ads.engine.Ads
+import com.lib.ads.gma.ads.engine.AdsProvider
 import com.lib.ads.gma.ads.engine.whenAdsReady
 import com.lib.ads.gma.ads.event.AdsLogEventManager
 import com.lib.ads.gma.ads.helper.canRequestFullScreenAds
@@ -32,7 +32,7 @@ import kotlin.time.Duration.Companion.milliseconds
 /**
  * Owns interstitial ad loading/showing, including the splash-interstitial flow (a splash screen
  * is just an interstitial with extra load-timing rules) — matches adlib's InterstitialAdManager.
- * [Ads] itself only initializes the SDK and holds config; every per-format concern lives here.
+ * [AdsProvider] itself only initializes the SDK and holds config; every per-format concern lives here.
  */
 object InterstitialAdManager {
     private const val TAG = "InterstitialAdManager"
@@ -50,7 +50,7 @@ object InterstitialAdManager {
     private var isShowLoadingSplash: Boolean = false
 
     fun loadInterstitialAdRaw(id: String, listener: InterstitialAdListener, placementId: Long? = null) {
-        Ads.getInstance().applicationContextOrNull()?.let { context ->
+        AdsProvider.getInstance().applicationContextOrNull()?.let { context ->
             if (context.resources.getStringArray(com.lib.ads.gma.gma.R.array.list_id_test).contains(id)) {
                 AdsManager.showTestIdAlert(context, AdsManager.INTERS_ADS, id)
             }
@@ -79,7 +79,7 @@ object InterstitialAdManager {
         placementId: Long? = null,
     ) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            Ads.MAIN.post { getInterstitialAdsList(tag, ids, listener, placementId) }; return
+            AdsProvider.MAIN.post { getInterstitialAdsList(tag, ids, listener, placementId) }; return
         }
         val list = ids.orEmpty()
         if (list.isEmpty()) {
@@ -152,7 +152,7 @@ object InterstitialAdManager {
         if (activity.isFinishing || activity.isDestroyed) {
             AppLogger.w(TAG, "showAd: Activity can no longer show an ad")
             waitingDialog.dismissSafely()
-            Ads.getInstance().setFullScreenAdShowing(false)
+            AdsProvider.getInstance().setFullScreenAdShowing(false)
             oneShotCallback?.onNextAction()
             return
         }
@@ -161,7 +161,7 @@ object InterstitialAdManager {
             override fun onAdShowedFullScreenContent() {
                 scope.launch {
                     AppLogger.w(TAG, "onAdShowedFullScreenContent")
-                    Ads.getInstance().setFullScreenAdShowing(true)
+                    AdsProvider.getInstance().setFullScreenAdShowing(true)
                     delay(AD_TRANSITION_COVER_DELAY.milliseconds)
                     waitingDialog.dismissSafely()
                     dismissLoadingDialog()
@@ -172,7 +172,7 @@ object InterstitialAdManager {
                 scope.launch {
                     AppLogger.w(TAG, "onAdDismissedFullScreenContent")
                     waitingDialog.dismissSafely()
-                    Ads.getInstance().setFullScreenAdShowing(false)
+                    AdsProvider.getInstance().setFullScreenAdShowing(false)
                     dismissLoadingDialog()
                     oneShotCallback?.onDismissed(ApInterstitialAd(interstitialAd))
                 }
@@ -185,7 +185,7 @@ object InterstitialAdManager {
                         "onAdFailedToShowFullScreenContent: ${fullScreenContentError.message}"
                     )
                     waitingDialog.dismissSafely()
-                    Ads.getInstance().setFullScreenAdShowing(false)
+                    AdsProvider.getInstance().setFullScreenAdShowing(false)
                     dismissLoadingDialog()
                     oneShotCallback?.onFailedToShow(ApAdError(fullScreenContentError))
                     oneShotCallback?.onNextAction()
@@ -232,7 +232,7 @@ object InterstitialAdManager {
         if (activity.isFinishing || activity.isDestroyed || !isAppInForeground()) {
             AppLogger.w(TAG, "showAd: Activity is no longer able to show an interstitial")
             waitingDialog.dismissSafely()
-            Ads.getInstance().setFullScreenAdShowing(false)
+            AdsProvider.getInstance().setFullScreenAdShowing(false)
             dismissLoadingDialog()
             oneShotCallback?.onNextAction()
             return
@@ -243,7 +243,7 @@ object InterstitialAdManager {
         } catch (e: Exception) {
             AppLogger.w(TAG, "showAd: failed to show interstitial ad: ${e.message}")
             waitingDialog.dismissSafely()
-            Ads.getInstance().setFullScreenAdShowing(false)
+            AdsProvider.getInstance().setFullScreenAdShowing(false)
             dismissLoadingDialog()
             oneShotCallback?.onFailedToShow(ApAdError(e.message ?: "Failed to show ad"))
         }
@@ -310,7 +310,7 @@ object InterstitialAdManager {
     ) = whenAdsReady {
         clearSplashTimers()
         isTimeDelay = false; isTimeout = false
-        val appContext = Ads.getInstance().applicationContextOrNull()
+        val appContext = AdsProvider.getInstance().applicationContextOrNull()
         if (appContext == null || !canRequestFullScreenAds(appContext, true)) {
             listener.onNextAction(); return@whenAdsReady
         }
@@ -348,7 +348,7 @@ object InterstitialAdManager {
     ) = whenAdsReady {
         clearSplashTimers()
         isTimeDelay = false; isTimeout = false
-        val appContext = Ads.getInstance().applicationContextOrNull()
+        val appContext = AdsProvider.getInstance().applicationContextOrNull()
         if (appContext == null || !canRequestFullScreenAds(appContext, true)) {
             listener.onNextAction(); return@whenAdsReady
         }
@@ -394,7 +394,7 @@ object InterstitialAdManager {
         val ad = FullScreenAdLruCache.pollInterstitial(SPLASH_TAG)?.interstitialAd ?: interstitialSplash
         if (ad == null) {
             Log.d(TAG, "onShowSplash: no ad loaded -> onNextAction()")
-            Ads.getInstance().setFullScreenAdShowing(false)
+            AdsProvider.getInstance().setFullScreenAdShowing(false)
             listener.onNextAction()
             return
         }
@@ -425,7 +425,7 @@ object InterstitialAdManager {
 
     private fun safeDismissDialog(activity: Activity) {
         isShowLoadingSplash = false
-        Ads.runOnMain {
+        AdsProvider.runOnMain {
             if (loadingAdsDialog?.isShowing == true && !activity.isFinishing && !activity.isDestroyed) {
                 runCatching { loadingAdsDialog?.dismiss() }
                 loadingAdsDialog = null

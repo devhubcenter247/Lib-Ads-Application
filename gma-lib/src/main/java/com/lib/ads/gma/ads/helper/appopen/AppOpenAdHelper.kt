@@ -8,7 +8,7 @@ import com.google.android.libraries.ads.mobile.sdk.appopen.AppOpenAdEventCallbac
 import com.google.android.libraries.ads.mobile.sdk.common.AdLoadCallback
 import com.google.android.libraries.ads.mobile.sdk.common.FullScreenContentError
 import com.google.android.libraries.ads.mobile.sdk.common.LoadAdError
-import com.lib.ads.gma.ads.engine.Ads
+import com.lib.ads.gma.ads.engine.AdsProvider
 import com.lib.ads.gma.ads.event.AdsLogEventManager
 import com.lib.ads.gma.ads.helper.canRequestFullScreenAds
 import com.lib.ads.gma.ads.helper.extension.extractAdUnitIdOrNull
@@ -181,7 +181,7 @@ class AppOpenAdHelper(
         callback: AppOpenAdListener? = null,
     ) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            Ads.runOnMain {
+            AdsProvider.runOnMain {
                 waitLoadAndShow(
                     activity,
                     timeoutMs,
@@ -334,7 +334,7 @@ class AppOpenAdHelper(
     ) {
         if (activity.isFinishing || activity.isDestroyed || !isAppInForeground()) {
             dialog.dismissSafely()
-            Ads.getInstance().setFullScreenAdShowing(false)
+            AdsProvider.getInstance().setFullScreenAdShowing(false)
             failShow(callback, "Activity can no longer show an app-open ad")
             return
         }
@@ -342,7 +342,7 @@ class AppOpenAdHelper(
         ad.adEventCallback = object : AppOpenAdEventCallback {
             override fun onAdShowedFullScreenContent() {
                 scope.launch {
-                    Ads.getInstance().setFullScreenAdShowing(true)
+                    AdsProvider.getInstance().setFullScreenAdShowing(true)
                     dispatch(callback) { it.onShown() }
                     delay(AD_TRANSITION_COVER_DELAY_MS.milliseconds)
                     dialog.dismissSafely()
@@ -352,7 +352,7 @@ class AppOpenAdHelper(
             override fun onAdDismissedFullScreenContent() {
                 scope.launch {
                     dialog.dismissSafely()
-                    Ads.getInstance().setFullScreenAdShowing(false)
+                    AdsProvider.getInstance().setFullScreenAdShowing(false)
                     dispatch(callback) { it.onDismissed() }
                 }
             }
@@ -360,7 +360,7 @@ class AppOpenAdHelper(
             override fun onAdFailedToShowFullScreenContent(error: FullScreenContentError) {
                 scope.launch {
                     dialog.dismissSafely()
-                    Ads.getInstance().setFullScreenAdShowing(false)
+                    AdsProvider.getInstance().setFullScreenAdShowing(false)
                     failShow(callback, error.message)
                 }
             }
@@ -395,7 +395,7 @@ class AppOpenAdHelper(
         runCatching { ad.show(activity) }
             .onFailure { error ->
                 dialog.dismissSafely()
-                Ads.getInstance().setFullScreenAdShowing(false)
+                AdsProvider.getInstance().setFullScreenAdShowing(false)
                 failShow(callback, error.message ?: "App-open show failed")
             }
     }

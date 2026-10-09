@@ -21,7 +21,7 @@ import com.google.android.libraries.ads.mobile.sdk.nativead.NativeAdLoader
 import com.google.android.libraries.ads.mobile.sdk.nativead.NativeAdLoaderCallback
 import com.google.android.libraries.ads.mobile.sdk.nativead.NativeAdView
 import com.lib.ads.gma.ads.billing.AppPurchase
-import com.lib.ads.gma.ads.engine.Ads
+import com.lib.ads.gma.ads.engine.AdsProvider
 import com.lib.ads.gma.ads.engine.whenAdsReady
 import com.lib.ads.gma.ads.event.AdsLogEventManager
 import com.lib.ads.gma.ads.helper.adnative.NativeAdRequestOptions
@@ -88,10 +88,10 @@ object NativeAdManager {
                 }
             }
         }
-        Ads.MAIN.postDelayed(timeoutTask, timeout)
+        AdsProvider.MAIN.postDelayed(timeoutTask, timeout)
         loadNativeAdResultCallback(context, ids[pos], layout, callback = object : NativeAdListener {
             override fun onLoaded(ad: ApNativeAd) {
-                    Ads.MAIN.removeCallbacks(timeoutTask)
+                    AdsProvider.MAIN.removeCallbacks(timeoutTask)
                     // An id that already timed out may still answer before the waterfall has a
                     // winner: show it rather than waste a matched request. Anything after the
                     // winner is a late ad.
@@ -100,7 +100,7 @@ object NativeAdManager {
             }
             override fun onFailed(error: ApAdError) {
                     if (abandoned.get() || done.get()) return
-                    Ads.MAIN.removeCallbacks(timeoutTask)
+                    AdsProvider.MAIN.removeCallbacks(timeoutTask)
                     failures += "${shortAdUnit(ids[pos])}: ${error.shortDescription()}"
                     if (pos + 1 < ids.size) loadNativeNextAdWithTimeout(context, ids, timeouts, pos + 1, layout, callback, done, options, onLateAd, failures)
                     else if (done.compareAndSet(false, true)) callback.onFailed(error.withCauses(failures))

@@ -2,7 +2,7 @@ package com.lib.ads.gma.ads.billing
 
 import android.app.Activity
 import android.app.Application
-import com.lib.ads.gma.ads.engine.Ads
+import com.lib.ads.gma.ads.engine.AdsProvider
 import com.lib.ads.gma.ads.util.AppUtil
 import com.lib.ads.gma.ads.util.AppLogger
 import com.android.billingclient.api.BillingClient
@@ -76,8 +76,9 @@ class AppPurchase private constructor() {
     }
 
     /**
-     * Waits for Billing first and then Ads initialization, with independent timeouts.
-     * The final listener callback is always delivered on the main thread.
+     * Starts Ads initialization if it has not been started yet (consent must already be resolved
+     * by the caller), then waits for Billing first and Ads initialization second, with independent
+     * timeouts. The final listener callback is always delivered on the main thread.
      */
     fun getBillingAndAwaitInitAds(
         billingTimeout: Int,
@@ -89,12 +90,13 @@ class AppPurchase private constructor() {
             "initBillingAndAwaitInitAds: billingTimeout=$billingTimeout, " +
                 "initAdsTimeout=$initAdsTimeout"
         )
+        AdsProvider.getInstance().initializeIfNeeded()
         setBillingListener(billingTimeout) { billingCode ->
             if (billingCode != BillingClient.BillingResponseCode.OK) {
-                Ads.runOnMain { listener?.onInitBillingFinished(billingCode) }
+                AdsProvider.runOnMain { listener?.onInitBillingFinished(billingCode) }
                 return@setBillingListener
             }
-            Ads.getInstance().awaitReady(initAdsTimeout) { adsReady ->
+            AdsProvider.getInstance().awaitReady(initAdsTimeout) { adsReady ->
                 val resultCode = if (adsReady) {
                     BillingClient.BillingResponseCode.OK
                 } else {
@@ -114,7 +116,7 @@ class AppPurchase private constructor() {
             AppLogger.d(TAG, "billing callback already delivered; ignoring code=$code")
             return
         }
-        Ads.runOnMain {
+        AdsProvider.runOnMain {
             billingListener?.onInitBillingFinished(code)
         }
     }

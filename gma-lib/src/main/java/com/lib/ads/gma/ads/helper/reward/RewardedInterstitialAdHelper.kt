@@ -8,7 +8,7 @@ import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import com.google.android.libraries.ads.mobile.sdk.common.AdValue
 import com.google.android.libraries.ads.mobile.sdk.rewarded.ServerSideVerificationOptions
-import com.lib.ads.gma.ads.engine.Ads
+import com.lib.ads.gma.ads.engine.AdsProvider
 import com.lib.ads.gma.ads.helper.canRequestFullScreenAds
 import com.lib.ads.gma.ads.helper.fullscreen.dismissSafely
 import com.lib.ads.gma.ads.helper.fullscreen.isAppInForeground
@@ -69,7 +69,7 @@ open class RewardedInterstitialAdHelper(
     fun preloadAds(tag: String? = config.preloadTag) = preload(tag)
 
     fun load() {
-        if (Looper.myLooper() != Looper.getMainLooper()) { Ads.MAIN.post { load() }; return }
+        if (Looper.myLooper() != Looper.getMainLooper()) { AdsProvider.MAIN.post { load() }; return }
         if (loadJob?.isActive == true || currentAd?.isReady() == true) return
         if (config.listId.isEmpty() || !canRequestFullScreenAds(appContext, config.canShowAds)) {
             emit { it.onNotReady() }
@@ -115,7 +115,7 @@ open class RewardedInterstitialAdHelper(
 
     fun forceShow(activity: Activity, callback: RewardAdListener? = null, waitingDialog: Dialog? = null) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            Ads.MAIN.post { forceShow(activity, callback, waitingDialog) }; return
+            AdsProvider.MAIN.post { forceShow(activity, callback, waitingDialog) }; return
         }
         val ad = currentAd
         if (ad == null || !ad.isRewardInterstitial() || !ad.isReady()) {
@@ -134,7 +134,7 @@ open class RewardedInterstitialAdHelper(
         callback: RewardAdListener? = null,
     ) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            Ads.MAIN.post { waitLoadAndShow(activity, enabled, timeoutMs, showWhenReturnFromBackground, prepareLoadingMs, callback) }
+            AdsProvider.MAIN.post { waitLoadAndShow(activity, enabled, timeoutMs, showWhenReturnFromBackground, prepareLoadingMs, callback) }
             return
         }
         if (!enabled || !config.canShowAds) { emit { it.onNotReady() }; callback?.onNotReady(); return }
@@ -190,6 +190,9 @@ open class RewardedInterstitialAdHelper(
             emit { it.onDismissed(ad) }; callback?.onDismissed(ad)
             if (config.autoReloadAfterShow && config.canReloadAds) load()
         }
+        override fun onRewardedAdClosed(ad: ApRewardAd, earnedReward: Boolean) {
+            emit { it.onRewardedAdClosed(ad, earnedReward) }; callback?.onRewardedAdClosed(ad, earnedReward)
+        }
         override fun onFailedToShow(error: ApAdError) { emit { it.onFailedToShow(error) }; callback?.onFailedToShow(error) }
     }
 
@@ -199,7 +202,7 @@ open class RewardedInterstitialAdHelper(
     }
 
     fun destroy() {
-        if (Looper.myLooper() != Looper.getMainLooper()) { Ads.MAIN.post { destroy() }; return }
+        if (Looper.myLooper() != Looper.getMainLooper()) { AdsProvider.MAIN.post { destroy() }; return }
         pendingShowGate?.cancel(); loadJob?.cancel(); currentAd = null; listeners.clear()
     }
 }

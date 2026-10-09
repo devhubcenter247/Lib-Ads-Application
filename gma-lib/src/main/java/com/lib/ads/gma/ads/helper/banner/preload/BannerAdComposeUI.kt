@@ -1,9 +1,6 @@
 package com.lib.ads.gma.ads.helper.banner.preload
 
-import ads_mobile_sdk.nu
-import android.content.Context
 import android.view.ViewGroup
-import androidx.annotation.VisibleForTesting
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,7 +17,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableLongStateOf
@@ -33,7 +29,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.tooling.preview.Preview
@@ -41,37 +36,22 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.android.libraries.ads.mobile.sdk.banner.AdView
-import com.google.android.libraries.ads.mobile.sdk.common.AdValue
 import com.google.android.libraries.ads.mobile.sdk.common.LoadAdError
-import com.lib.ads.gma.ads.engine.Ads
+import com.lib.ads.gma.ads.engine.AdsProvider
 import com.lib.ads.gma.ads.helper.banner.BannerAds
 import com.lib.ads.gma.ads.helper.banner.bindBannerHolderLifecycle
 import com.lib.ads.gma.ads.helper.banner.buildBannerAdHolder
-import com.lib.ads.gma.ads.helper.banner.params.loadingHeightDp
 import com.lib.ads.gma.ads.helper.banner.params.BannerAdConfig
 import com.lib.ads.gma.ads.helper.banner.params.BannerAdPreloadHolderOptions
 import com.lib.ads.gma.ads.helper.banner.params.BannerSize
 import com.lib.ads.gma.ads.helper.banner.params.BannerLoadingColors
 import com.lib.ads.gma.ads.helper.banner.params.BannerPreloadState
-import com.lib.ads.gma.ads.manager.BannerAdManager
-import com.lib.ads.gma.ads.model.wrapper.ApAdError
 import com.lib.ads.gma.ads.model.wrapper.BannerAdListener
-import com.lib.ads.gma.ads.util.AppLogger
 import com.lib.ads.gma.compose.AdDebugInfo
 import com.lib.ads.gma.compose.AdDebugOverlayCompose
 import com.lib.ads.gma.compose.pxToDp
 import com.lib.ads.gma.compose.rememberShimmerState
 import com.lib.ads.gma.compose.shimmer
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.job
-import kotlinx.coroutines.launch
-import java.util.concurrent.CopyOnWriteArrayList
 
 /**
  * Remembers a banner holder for [tag], bound to the Compose screen's lifecycle. It consumes the
@@ -210,7 +190,7 @@ fun BannerAdCard(
             }
         }
 
-        if (Ads.getInstance().adConfigOrNull?.showMessageForTester == true) {
+        if (AdsProvider.getInstance().adConfigOrNull?.showMessageForTester == true) {
             val debugInfo = remember(state, preloadState, loadTimeMs, lastError) {
                 AdDebugInfo(
                     adType = "Banner",

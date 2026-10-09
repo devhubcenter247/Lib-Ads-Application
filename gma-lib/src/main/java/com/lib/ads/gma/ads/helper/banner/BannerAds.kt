@@ -1,6 +1,6 @@
 package com.lib.ads.gma.ads.helper.banner
 
-import com.lib.ads.gma.ads.engine.Ads
+import com.lib.ads.gma.ads.engine.AdsProvider
 import com.lib.ads.gma.ads.manager.BannerAdManager
 import com.lib.ads.gma.ads.helper.banner.params.BannerPreloadState
 import com.lib.ads.gma.ads.model.wrapper.BannerAdListener
@@ -121,7 +121,7 @@ object BannerAds {
         val workerCount = (requestedTarget - cache.size).coerceAtLeast(1).coerceAtMost(MAX_PARALLEL_BANNER_PRELOADS)
         AdLogger.d(AdFormat.BANNER, tag, "PRELOAD_START", "ids=${spec.adUnitIds} target=$requestedTarget parallel=$workerCount widthDp=${spec.widthDp} heightConfig=${spec.heightConfig}")
         preloadJobs[tag] = scope.launch {
-            val context = Ads.getInstance().applicationContextOrNull()
+            val context = AdsProvider.getInstance().applicationContextOrNull()
             if (context == null || spec.adUnitIds.isEmpty()) {
                 state(tag).value = BannerPreloadState.Empty
                 return@launch
@@ -294,7 +294,7 @@ object BannerAds {
         failures: MutableList<String> = mutableListOf(),
     ): Pair<AdView, String>? {
         val spec = specs[tag] ?: return null
-        val context = Ads.getInstance().applicationContextOrNull() ?: return null
+        val context = AdsProvider.getInstance().applicationContextOrNull() ?: return null
         val inFlight = inFlightRequests.getOrPut(tag) { AtomicInteger() }
         requestCounts.getOrPut(tag) { AtomicInteger() }.incrementAndGet()
         inFlight.incrementAndGet()

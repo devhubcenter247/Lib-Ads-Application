@@ -404,8 +404,8 @@ open class RewardedAdHelper(
                 dismissLoadingDialog()
 
                 invokeAdListener { it.onRewardedAdClosed(earnedReward) }
-                invokeAdListener { it.onNextAction() }
                 invokeAdListener { it.onAdClosed() }
+                invokeAdListener { it.onNextAction() }
                 unregisterOneShot(oneShotCallback)
 
                 if (config.autoReloadAfterShow && canReloadAd()) {
