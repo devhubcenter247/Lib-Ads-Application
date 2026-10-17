@@ -13,7 +13,9 @@ apps upgrading from earlier versions.
 | 4 | Consumable products: call `AppPurchase.getInstance().setRecoveredConsumableListener { grant(it.productId) }` before `initBilling` | Purchases completed while the app was dead (e.g. pending cash payments) are delivered there, then consumed |
 | 5 | Consuming the published artifact (`com.lib:gmasdk`): add the exclude below to the app module | Mediation adapters depend on `play-services-ads`, which must not sit next to the Next-Gen SDK |
 | 6 | Code with an exhaustive `when (adType)` on `AdType` | New value `REWARDED_INTERSTITIAL` |
-| 7 | Tell the data team: `ad_impression` now carries revenue; mediated fills now have their real ad unit | Dashboards built on the old values will shift |
+| 7 | Apps calling `AppsFlyerAdRevenue` (legacy `com.appsflyer:adrevenue`) directly: add that dependency yourself | gma-lib no longer ships it |
+| 8 | Premium users and rewarded ads: override `RewardAdListener.onPremiumUser()` to grant the reward and return `true` | Otherwise the old `onFailed` / `onFailedToShow("App is purchased")` / `onNotReady` is reported |
+| 9 | Tell the data team: `ad_impression` now carries revenue; mediated fills now have their real ad unit | Dashboards built on the old values will shift |
 
 ```kotlin
 // app/build.gradle.kts
@@ -87,6 +89,11 @@ Health events reach AppsFlyer only when `AdsTrackEvent.AD_LOAD_TIME` / `AD_LOAD_
 `AD_SHOW_FAILED` are in `AppsflyerConfig.events`.
 
 ## 5. Behaviour worth knowing
+
+- **Consent testing.** In development builds set `consentDebugGeography` (e.g.
+  `ConsentDebugSettings.DebugGeography.DEBUG_GEOGRAPHY_EEA`) and `consentTestDeviceHashedIds` on
+  `AdSdkConfig`; `ConsentManager.resetConsentForDebug()` shows the form again. Both are ignored in
+  production builds.
 
 - **Callbacks.** Load and ad-event listeners are called on the main thread. The Next-Gen SDK itself
   calls back on a background thread.

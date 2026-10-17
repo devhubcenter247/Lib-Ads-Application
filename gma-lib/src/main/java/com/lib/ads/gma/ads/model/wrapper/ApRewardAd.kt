@@ -36,6 +36,13 @@ class ApRewardAd : ApAdBase {
         rewardInterstitial = null
     }
 
+    /** Releases an ad that will never be shown (e.g. a fill that arrived after its load timed out). */
+    fun destroy() {
+        runCatching { rewardAd?.destroy() }
+        runCatching { rewardInterstitial?.destroy() }
+        clean()
+    }
+
     override fun isReady() = rewardAd != null || rewardInterstitial != null
 
     fun isRewardInterstitial() = rewardInterstitial != null

@@ -58,8 +58,6 @@ ehthumbs.db
 # Captures
 /captures
 /reverse-output
-/gma-lib/src/test
-/gma-lib/src/androidTest
 gma-lib/src/test/java/com/lib/ads/gma/NativeAdPreloadConfigTest.kt
 *.unitTest
 .kotlin/

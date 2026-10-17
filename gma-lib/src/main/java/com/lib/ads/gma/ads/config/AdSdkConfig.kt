@@ -66,6 +66,18 @@ class AdSdkConfig(
     var propagateConsent: Boolean = true
 
     /**
+     * Development builds only (ignored unless [isVariantDev]): UMP debug geography, e.g.
+     * `ConsentDebugSettings.DebugGeography.DEBUG_GEOGRAPHY_EEA`, to test the consent flow without a VPN.
+     */
+    var consentDebugGeography: Int? = null
+
+    /**
+     * Development builds only: hashed device ids UMP treats as test devices. UMP prints the id
+     * in logcat ("Use new ConsentDebugSettings.Builder().addTestDeviceHashedId(...)") on first run.
+     */
+    var consentTestDeviceHashedIds: List<String> = emptyList()
+
+    /**
      * Logs `event_current_total_revenue_ad` (lifetime ad revenue) after every paid impression —
      * the legacy behaviour, kept on by default so existing dashboards do not break. It is the
      * noisiest event the SDK sends; turn it off once no report reads it.

@@ -106,7 +106,11 @@ object AppOpenAdManager {
         if (timeOut > 0) mainHandler.postDelayed(timeoutRunnable!!, timeOut)
 
         fun onAdReady(ad: AppOpenAd) {
-            if (!isCurrent()) return
+            if (!isCurrent()) {
+                // Late fill after timeout/cancel: nothing will show it.
+                runCatching { ad.destroy() }
+                return
+            }
             openAdLoaded = ad
             FullScreenAdLruCache.put(tag, ad)
             // Loaded in time: the timeout must not continue the flow a second time later.

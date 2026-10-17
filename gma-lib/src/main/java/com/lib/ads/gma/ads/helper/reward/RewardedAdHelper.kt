@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Context
 import android.os.Looper
 import androidx.lifecycle.LifecycleOwner
+import com.lib.ads.gma.ads.billing.AppPurchase
 import com.lib.ads.gma.ads.engine.AdsProvider
 import com.lib.ads.gma.ads.manager.RewardAdManager
 import com.lib.ads.gma.ads.manager.FullScreenAdLruCache
@@ -107,6 +108,7 @@ open class RewardedAdHelper(
     fun load(activity: Activity? = lastActivity) {
         if (Looper.myLooper() != Looper.getMainLooper()) { AdsProvider.MAIN.post { load(activity) }; return }
         lastActivity = activity ?: lastActivity
+        if (AppPurchase.getInstance().isPurchased()) { emit { if (!it.onPremiumUser()) it.onNotReady() }; return }
         if (config.listId.isEmpty() || !canRequestFullScreenAds(appContext, config.canShowAds)) { emit { it.onNotReady() }; return }
         if (loadJob?.isActive == true || currentAd?.isReady() == true) return
         if (takePreloadedAd()) return
@@ -123,7 +125,11 @@ open class RewardedAdHelper(
                     withContext(Dispatchers.Main.immediate) {
                         suspendCancellableCoroutine<Pair<ApRewardAd?, ApAdError?>> { continuation ->
                             RewardAdManager.loadReward(id, object : RewardAdListener {
-                                override fun onLoaded(ad: ApRewardAd) { if (continuation.isActive) continuation.resume(ad to null) }
+                                override fun onLoaded(ad: ApRewardAd) {
+                                    // A fill after the per-id timeout is never shown: release it.
+                                    if (continuation.isActive) continuation.resume(ad to null) { _, _, _ -> ad.destroy() }
+                                    else ad.destroy()
+                                }
                                 override fun onFailed(error: ApAdError) { if (continuation.isActive) continuation.resume(null to error) }
                             }, placementId = config.placementId)
                         }
@@ -144,6 +150,7 @@ open class RewardedAdHelper(
     fun forceShow(activity: Activity, callback: RewardAdListener? = null, waitingDialog: android.app.Dialog? = null) {
         if (Looper.myLooper() != Looper.getMainLooper()) { AdsProvider.MAIN.post { forceShow(activity, callback, waitingDialog) }; return }
         lastActivity = activity
+        if (AppPurchase.getInstance().isPurchased() && callback?.onPremiumUser() == true) return
         val ad = currentAd
         if (ad == null || !ad.isReady()) { callback?.onNotReady(); return }
         if (activity.isFinishing || activity.isDestroyed) {
@@ -195,6 +202,7 @@ open class RewardedAdHelper(
             callback?.onNotReady()
             return
         }
+        if (AppPurchase.getInstance().isPurchased() && callback?.onPremiumUser() == true) return
         lastActivity = activity
         if (!isAdLoaded() && loadJob?.isActive != true) load(activity)
         scope.launch {

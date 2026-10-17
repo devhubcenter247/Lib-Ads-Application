@@ -324,8 +324,11 @@ class AppOpenAdHelper(
                             AdHealthEvents.loadFinished(AdType.APP_OPEN, id, startedAt, null)
                             AppLogger.w(TAG, "onAdLoaded: $id")
                             ad.setImmersiveMode(true)
+                            // A fill after cancellation (or racing it) is never shown: release it.
                             if (continuation.isActive) {
-                                continuation.resume(AppOpenPreloadState.Loaded(ad))
+                                continuation.resume(AppOpenPreloadState.Loaded(ad)) { _, _, _ -> runCatching { ad.destroy() } }
+                            } else {
+                                runCatching { ad.destroy() }
                             }
                         }
 

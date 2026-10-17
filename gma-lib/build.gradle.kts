@@ -88,7 +88,8 @@ dependencies {
     // Analytics SDKs
     api(libs.adjust.android)
     api(libs.appsflyer.sdk)
-    api(libs.appsflyer.adrevenue)
+    // com.appsflyer:adrevenue (legacy AppsFlyerAdRevenue API) removed: ad revenue goes through
+    // AppsFlyerLib.logAdRevenue in af-android-sdk. Apps still calling AppsFlyerAdRevenue must add it.
     // Install attribution for Adjust and AppsFlyer; declared explicitly instead of relying on facebook-core.
     api(libs.installreferrer)
     api(libs.facebook.sdk)

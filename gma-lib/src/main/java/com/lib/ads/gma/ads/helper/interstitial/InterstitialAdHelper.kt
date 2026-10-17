@@ -360,9 +360,11 @@ open class InterstitialAdHelper(
                             AdHealthEvents.loadFinished(AdType.INTERSTITIAL, adId, startedAt, null)
                             logZ("onAdLoaded: $adId")
                             ad.setImmersiveMode(true)
-
+                            // A fill after the timeout (or racing it) is never shown: release it.
                             if (continuation.isActive) {
-                                continuation.resume(ad)
+                                continuation.resume(ad) { _, late, _ -> runCatching { late.destroy() } }
+                            } else {
+                                runCatching { ad.destroy() }
                             }
                         }
 

@@ -63,6 +63,15 @@ interface RewardAdListener {
     fun onNotReady() = Unit
     fun onPaid(adValue: AdValue) = Unit
     fun onMetadataChanged() = Unit
+
+    /**
+     * The user owns REMOVE_ADS, so no rewarded ad is loaded or shown. Return `true` when the app
+     * handles it itself (typically: grant the reward directly); the SDK then skips the
+     * onFailed / onFailedToShow / onNotReady it would otherwise report for this premium case.
+     * Default `false` keeps that previous behaviour. May be asked more than once per request while
+     * it returns `false`, so grant only on the call that returns `true`. Called on the main thread.
+     */
+    fun onPremiumUser(): Boolean = false
 }
 
 interface AppOpenAdListener {

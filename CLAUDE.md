@@ -28,7 +28,7 @@ on one classpath.
 ./gradlew :gma-lib:publishReleasePublicationToGitHubPackagesRepository
 ```
 
-Note: `.gitignore` ignores `/gma-lib/src/test` — new unit tests stay local unless that rule changes.
+Unit tests live in `gma-lib/src/test` (JVM, pure logic: revenue mapping, billing pricing, consent mapping, caps).
 
 ## Build Configuration
 
@@ -65,7 +65,8 @@ Note: `.gitignore` ignores `/gma-lib/src/test` — new unit tests stay local unl
    `paid_ad_impression*`, Adjust `trackAdRevenue`, AppsFlyer `logAdRevenue`, revenue totals. Do not
    log `ad_impression` anywhere else.
 4. **Rewards** are granted only from the SDK reward callback (`onRewarded`); `onRewardedAdClosed(earnedReward)`
-   reports whether it fired.
+   reports whether it fired. Premium users never load rewarded ads; every reward entry point asks
+   `RewardAdListener.onPremiumUser()` first so the app can grant the reward itself.
 5. **Waterfalls**: the first id that loads wins; late fills are kept or destroyed, never shown twice.
    Splash flows reach the listener with exactly one terminal callback after a timeout.
 6. **Billing**:
@@ -82,6 +83,7 @@ Note: `.gitignore` ignores `/gma-lib/src/test` — new unit tests stay local unl
 |------|---------|--------|
 | `logFirebaseAdImpression` | true | GA4 `ad_impression` with revenue; turn off only if AdMob auto-collection already logs it |
 | `propagateConsent` | true | UMP → Firebase / Adjust consent |
+| `consentDebugGeography`, `consentTestDeviceHashedIds` | null / empty | UMP debug settings, dev builds only |
 | `logTotalRevenueEachImpression` | true | per-impression `event_current_total_revenue_ad` |
 | `logAdHealthEvents` | false | `ad_load_time`, `ad_load_failed`, `ad_show_failed` |
 | `logFirebasePurchase` | false | Firebase `purchase` (leave off when GA4 is linked to Play) |

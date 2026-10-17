@@ -58,7 +58,8 @@ object RewardAdManager {
             if (context.resources.getStringArray(R.array.list_id_test).contains(id)) AdsManager.showTestIdAlert(context, AdsManager.REWARD_ADS, id)
         }
         if (AppPurchase.getInstance().isPurchased()) {
-            listener.onFailed(ApAdError("App is purchased")); return
+            runOnMain { if (!listener.onPremiumUser()) listener.onFailed(ApAdError("App is purchased")) }
+            return
         }
         // The Next-Gen SDK calls load callbacks on a background thread; listeners get main.
         val startedAt = AdHealthEvents.now()
@@ -86,7 +87,8 @@ object RewardAdManager {
             if (context.resources.getStringArray(R.array.list_id_test).contains(id)) AdsManager.showTestIdAlert(context, AdsManager.REWARD_ADS, id)
         }
         if (AppPurchase.getInstance().isPurchased()) {
-            listener.onFailed(ApAdError("App is purchased")); return
+            runOnMain { if (!listener.onPremiumUser()) listener.onFailed(ApAdError("App is purchased")) }
+            return
         }
         val startedAt = AdHealthEvents.now()
         RewardedInterstitialAd.load(AdsManager.getAdRequest(id, placementId), object : AdLoadCallback<RewardedInterstitialAd> {
@@ -195,8 +197,20 @@ object RewardAdManager {
 
     fun forceShowRewardAd(activity: Activity, ad: ApRewardAd?, listener: RewardAdListener) {
         if (Looper.myLooper() != Looper.getMainLooper()) { AdsProvider.MAIN.post { forceShowRewardAd(activity, ad, listener) }; return }
+        if (premiumHandled(listener)) return
         if (ad == null || !ad.isReady()) { Log.e(TAG, "forceShowRewardAd: ad not ready"); listener.onNotReady(); return }
         showReward(activity, ad, null, listener)
+    }
+
+    /**
+     * A premium user's rewarded request: true when the app took it over via
+     * [RewardAdListener.onPremiumUser]. Checked before any "not ready" — a premium user never has
+     * a cached ad, so that path would otherwise hide the premium case.
+     */
+    private fun premiumHandled(listener: RewardAdListener, waitingDialog: Dialog? = null): Boolean {
+        if (!AppPurchase.getInstance().isPurchased() || !listener.onPremiumUser()) return false
+        waitingDialog.dismissSafely()
+        return true
     }
 
     fun loadReward(id: String, listener: RewardAdListener, placementId: Long? = null) =
@@ -207,6 +221,7 @@ object RewardAdManager {
         loadRewardAdList(tag, ids, listener, placementId)
 
     fun showReward(activity: Activity, tag: String, listener: RewardAdListener, waitingDialog: Dialog? = null) {
+        if (premiumHandled(listener, waitingDialog)) return
         val ad = FullScreenAdLruCache.pollReward(tag)
         if (ad == null) { listener.onNotReady(); return }
         showReward(activity, ad, null, listener, waitingDialog)
@@ -226,6 +241,8 @@ object RewardAdManager {
             override fun onRewardedAdClosed(ad: ApRewardAd, earnedReward: Boolean) = listener.onRewardedAdClosed(ad, earnedReward)
             override fun onFailedToShow(error: ApAdError) { listener.onFailedToShow(error); onNextAction?.invoke() }
             override fun onNotReady() { listener.onNotReady(); onNextAction?.invoke() }
+            override fun onPremiumUser(): Boolean =
+                listener.onPremiumUser().also { handled -> if (handled) onNextAction?.invoke() }
         }, waitingDialog)
     }
 
@@ -248,6 +265,7 @@ object RewardAdManager {
         listener: RewardAdListener,
         waitingDialog: Dialog? = null,
     ) {
+        if (premiumHandled(listener, waitingDialog)) return
         val ad = FullScreenAdLruCache.pollRewardInterstitial(tag)
         if (ad == null) {
             listener.onNotReady()
@@ -274,7 +292,7 @@ object RewardAdManager {
         if (AppPurchase.getInstance().isPurchased()) {
             waitingDialog.dismissSafely()
             AdsProvider.getInstance().setFullScreenAdShowing(false)
-            listener.onFailedToShow(ApAdError("App is purchased"))
+            if (!listener.onPremiumUser()) listener.onFailedToShow(ApAdError("App is purchased"))
             return
         }
         // SDK callbacks arrive on a background thread; every listener call is marshalled to main in
