@@ -7,9 +7,9 @@ import com.appsflyer.AppsFlyerLib
 import com.appsflyer.adrevenue.AppsFlyerAdRevenue
 import com.appsflyer.adrevenue.adnetworks.generic.MediationNetwork
 import com.appsflyer.adrevenue.adnetworks.generic.Scheme
-import com.appsflyer.share.AFInAppEventParameterName
-import com.appsflyer.share.AFInAppEventType
-import com.appsflyer.share.attribution.AppsFlyerRequestListener
+import com.appsflyer.AFInAppEventParameterName
+import com.appsflyer.AFInAppEventType
+import com.appsflyer.attribution.AppsFlyerRequestListener
 import com.google.android.gms.ads.AdValue
 import com.lib.ads.gma.ads.billing.AppPurchase
 import com.lib.ads.gma.ads.util.AdType
@@ -43,9 +43,8 @@ class AdAppsflyer private constructor() {
     fun init(context: Application, devKey: String, enableDebugLog: Boolean = false) {
         this.context = context
         AppsFlyerLib.getInstance().init(devKey, null, context)
-        // SDK 7.0.0 has no start(Context) overload — only start() / start(listener).
-        // The context was already supplied to init() above.
-        AppsFlyerLib.getInstance().start()
+        // adlib is pinned to AppsFlyer 6.x (shared catalog with gma-lib), where start(Context) is the API.
+        AppsFlyerLib.getInstance().start(context)
 
         val afRevenueBuilder = AppsFlyerAdRevenue.Builder(context)
         AppsFlyerAdRevenue.initialize(afRevenueBuilder.build())
