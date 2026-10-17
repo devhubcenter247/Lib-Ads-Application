@@ -7,6 +7,7 @@ import com.google.android.ump.ConsentForm
 import com.google.android.ump.ConsentInformation
 import com.google.android.ump.ConsentRequestParameters
 import com.google.android.ump.UserMessagingPlatform
+import com.lib.ads.gma.ads.engine.AdsProvider
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
@@ -66,7 +67,10 @@ class ConsentManager(private val activity: Activity) {
                     }
                 )
             }
-            if (updated) return
+            if (updated) {
+                AdsProvider.getInstance().onConsentUpdated(activity)
+                return
+            }
             if (attempt < maxRetries) delay(retryDelayMs)
         }
     }
@@ -75,7 +79,10 @@ class ConsentManager(private val activity: Activity) {
         activity: Activity,
         onConsentFormDismissedListener: ConsentForm.OnConsentFormDismissedListener
     ) {
-        UserMessagingPlatform.showPrivacyOptionsForm(activity, onConsentFormDismissedListener)
+        UserMessagingPlatform.showPrivacyOptionsForm(activity) { formError ->
+            AdsProvider.getInstance().onConsentUpdated(activity)
+            onConsentFormDismissedListener.onConsentFormDismissed(formError)
+        }
     }
 
     companion object {

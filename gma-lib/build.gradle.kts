@@ -89,6 +89,8 @@ dependencies {
     api("com.adjust.sdk:adjust-android:5.6.1")
     api("com.appsflyer:af-android-sdk:6.17.5")
     api("com.appsflyer:adrevenue:6.9.1")
+    // Install attribution for Adjust and AppsFlyer; declared explicitly instead of relying on facebook-core.
+    api("com.android.installreferrer:installreferrer:2.2")
     api("com.facebook.android:facebook-android-sdk:18.2.3")
 
     // Mediation Adapters
@@ -96,7 +98,9 @@ dependencies {
     api("com.facebook.android:audience-network-sdk:6.21.0")
     api("com.google.ads.mediation:mintegral:17.1.51.0")
     api("com.google.ads.mediation:pangle:8.0.0.4.0")
-    api("com.google.ads.mediation:unity:4.17.0.0")
+    // Unity Ads mediation: the adapter does not pull the SDK in. Keep both on the same release family.
+    api("com.unity3d.ads:unity-ads:4.19.0")
+    api("com.google.ads.mediation:unity:4.19.0.0")
 
     // UI Libraries
     implementation("com.airbnb.android:lottie:6.7.1")

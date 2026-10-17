@@ -4,7 +4,7 @@ import com.lib.ads.gma.ads.engine.AdsProvider
 import com.lib.ads.gma.ads.manager.BannerAdManager
 import com.lib.ads.gma.ads.helper.banner.params.BannerPreloadState
 import com.lib.ads.gma.ads.model.wrapper.BannerAdListener
-import com.lib.ads.gma.ads.helper.extension.extractAdUnitIdOrNull
+import com.lib.ads.gma.ads.helper.extension.adUnitIdOrEmpty
 import com.lib.ads.gma.ads.util.AppLogger
 import com.lib.ads.gma.ads.util.AdLogger
 import com.lib.ads.gma.ads.util.AdFormat
@@ -144,7 +144,7 @@ object BannerAds {
                             }
                             if (result != null && generations[tag]?.get() == generation) {
                                 cache.addLast(result)
-                                val winningId = result.ad.getResponseInfo().extractAdUnitIdOrNull().orEmpty()
+                                val winningId = result.ad.adUnitIdOrEmpty()
                                 AdLogger.d(AdFormat.BANNER, tag, "FILL", "id=$winningId cached=${cache.size} target=$requestedTarget")
                                 // Keep ItemLoaded until every worker has finished. Publishing Ready
                                 // here lets a holder poll the last item while sibling workers are
@@ -216,7 +216,7 @@ object BannerAds {
      */
     fun readyAdUnitId(tag: String): String? {
         val spec = specs[tag] ?: return null
-        return tagCaches.get(tag)?.firstOrNull()?.ad?.getResponseInfo()?.extractAdUnitIdOrNull()
+        return tagCaches.get(tag)?.firstOrNull()?.ad?.adUnitIdOrEmpty()?.takeIf { it.isNotEmpty() }
     }
 
     /** Replaces cached ads whose configured TTL has elapsed before they are consumed. */
@@ -319,7 +319,7 @@ object BannerAds {
             throw e
         } ?: return null
         BannerAdManager.bindBannerAdListener(cached.sourceView.context.applicationContext, cached.ad, callback)
-        return cached.sourceView to cached.ad.getResponseInfo().extractAdUnitIdOrNull().orEmpty()
+        return cached.sourceView to cached.ad.adUnitIdOrEmpty()
     }
 
     private fun keepUnclaimed(tag: String, cached: CachedBanner) {

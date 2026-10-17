@@ -5,5 +5,6 @@ enum class AdType {
     INTERSTITIAL,
     NATIVE,
     REWARDED,
+    REWARDED_INTERSTITIAL,
     APP_OPEN
 }

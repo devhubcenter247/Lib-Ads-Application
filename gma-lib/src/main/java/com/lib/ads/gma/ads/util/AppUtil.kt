@@ -8,9 +8,14 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 
 object AppUtil {
+    /**
+     * Fails closed: a consumer that never applies an [com.lib.ads.gma.ads.config.AdSdkConfig]
+     * must not get the fake dev purchase sheet in production.
+     */
     @JvmField
-    var VARIANT_DEV: Boolean = true
+    var VARIANT_DEV: Boolean = false
 
+    @Deprecated("Not read by the SDK any more; the 0.01 bucket lives in SharePreferenceUtils (micros, thread-safe).")
     @JvmField
     var currentTotalRevenue001Ad: Float = 0f
 

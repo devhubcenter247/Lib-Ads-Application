@@ -13,4 +13,7 @@ class AppsflyerConfig(
         devKey: String,
         alreadyInitialized: Boolean,
     ) : this(enableAppsflyer, devKey, AdsTrackEvent.DEFAULT, alreadyInitialized)
+
+    /** Lets AppsFlyer read the UMP/TCF consent string (DMA). Applied before `start()`. */
+    var enableTCFDataCollection: Boolean = true
 }

@@ -3,85 +3,125 @@ package com.lib.ads.gma.ads.event
 import android.content.Context
 import android.os.Bundle
 import android.util.Log
-import com.lib.ads.gma.ads.model.AdType
-import com.lib.ads.gma.ads.helper.extension.extractAdUnitIdOrNull
-import com.lib.ads.gma.ads.util.AppUtil
-import com.lib.ads.gma.ads.util.SharePreferenceUtils
+import com.google.android.libraries.ads.mobile.sdk.common.Ad
 import com.google.android.libraries.ads.mobile.sdk.common.AdValue
-import com.google.android.libraries.ads.mobile.sdk.common.PrecisionType
 import com.google.android.libraries.ads.mobile.sdk.common.ResponseInfo
+import com.lib.ads.gma.ads.engine.AdsProvider
+import com.lib.ads.gma.ads.helper.extension.adUnitIdOrEmpty
+import com.lib.ads.gma.ads.helper.extension.extractAdUnitIdOrNull
+import com.lib.ads.gma.ads.model.AdType
+import com.lib.ads.gma.ads.util.SharePreferenceUtils
 
 object AdsLogEventManager {
     private const val TAG = "AdsLogEventManager"
+    private const val THREE_DAYS_MS = 259_200_000L
+    private const val SEVEN_DAYS_MS = 604_800_000L
 
+    /**
+     * Preferred entry point: the ad unit and Ad Placements id are read from [ad] itself, which is
+     * correct for mediated fills too. Safe to call from the SDK's background callback thread.
+     */
     @JvmStatic
-    fun logPaidAdImpression(context: Context, adValue: AdValue, responseInfo: ResponseInfo, adType: AdType) {
-        val loadedSource = responseInfo.loadedAdSourceResponseInfo
-        val mediationAdapterClassName = loadedSource?.adapterClassName
-        val adSourceName = loadedSource?.name ?: ""
-        val adUnitId = responseInfo.extractAdUnitIdOrNull() ?: ""
-        val precisionInt = when (adValue.precisionType) {
-            PrecisionType.ESTIMATED -> 1
-            PrecisionType.PUBLISHER_PROVIDED -> 2
-            PrecisionType.PRECISE -> 3
-            else -> 0
+    fun logPaidAdImpression(context: Context, adValue: AdValue, ad: Ad, adType: AdType) {
+        val placementId = runCatching { ad.placementId }.getOrDefault(0L)
+        logPaidImpression(context, PaidImpression.from(adValue, ad.getResponseInfo(), adType, ad.adUnitIdOrEmpty(), placementId))
+    }
+
+    /** Legacy entry point: the ad unit is parsed from the response and is empty for mediated fills. */
+    @JvmStatic
+    fun logPaidAdImpression(context: Context, adValue: AdValue, responseInfo: ResponseInfo, adType: AdType) =
+        logPaidImpression(
+            context,
+            PaidImpression.from(adValue, responseInfo, adType, responseInfo.extractAdUnitIdOrNull().orEmpty(), 0L),
+        )
+
+    private fun logPaidImpression(context: Context, impression: PaidImpression) {
+        val appContext = context.applicationContext
+        Log.d(
+            TAG,
+            "paid: ${impression.valueMicros} micros ${impression.currency} precision=${impression.precision} " +
+                "format=${impression.adFormat} unit=${impression.adUnitId} source=${impression.adSourceName}",
+        )
+        if (AdsProvider.getInstance().adConfigOrNull?.logFirebaseAdImpression != false) {
+            safely("firebase ad_impression") { FirebaseAnalyticsUtil.logAdImpression(appContext, impression) }
         }
-        logEventWithAds(context, adValue.valueMicros.toFloat(), precisionInt, adUnitId, mediationAdapterClassName)
-        AdsAdjust.pushTrackEvent(adValue, adSourceName)
-        AdsAppsflyer.logPaidAdImpression(context, adValue, responseInfo, adType)
+
+        val paidParams = impression.paidAdImpressionParams().toBundle()
+        safely("firebase paid_ad_impression") { FirebaseAnalyticsUtil.logEventWithAds(appContext, paidParams) }
+        safely("facebook paid_ad_impression") { FacebookEventUtils.logEventWithAds(appContext, paidParams) }
+        safely("appsflyer paid_ad_impression") { AdsAppsflyer.logEvent(appContext, "paid_ad_impression", paidParams) }
+
+        val valueParams = impression.paidAdImpressionValueParams().toBundle()
+        safely("adjust impression value") { AdsAdjust.logPaidAdImpressionValue(impression.value, impression.currency) }
+        safely("firebase paid_ad_impression_value") { FirebaseAnalyticsUtil.logPaidAdImpressionValue(appContext, valueParams) }
+        safely("facebook paid_ad_impression_value") { FacebookEventUtils.logPaidAdImpressionValue(appContext, valueParams) }
+        safely("appsflyer paid_ad_impression_value") { AdsAppsflyer.logEvent(appContext, "paid_ad_impression_value", valueParams) }
+
+        safely("adjust ad revenue") { AdsAdjust.trackAdRevenue(impression) }
+        safely("appsflyer ad revenue") { AdsAppsflyer.logPaidAdImpression(impression) }
+
+        val snapshot = SharePreferenceUtils.addAdRevenueMicros(appContext, impression.valueMicros)
+        logCurrentTotalRevenueAd(appContext, "event_current_total_revenue_ad")
+        snapshot.bucket001PayoutMicros?.let { logRevenue001Payout(appContext, it) }
+        logTotalRevenueAdIn3DaysIfNeed(appContext)
+        logTotalRevenueAdIn7DaysIfNeed(appContext)
     }
 
     @JvmStatic
     fun logClickAdsEvent(context: Context, adUnitId: String?) {
         Log.d(TAG, "User click ad for ad unit $adUnitId")
         if (adUnitId.isNullOrEmpty()) return
+        val appContext = context.applicationContext
         val bundle = Bundle().apply { putString("ad_unit_id", adUnitId) }
-        FirebaseAnalyticsUtil.logClickAdsEvent(context, bundle)
-        FacebookEventUtils.logClickAdsEvent(context, bundle)
-        AdsAdjust.onTrackClickAds()
-        AdsAppsflyer.logEvent(context, "ad_click", bundle)
+        safely("firebase click") { FirebaseAnalyticsUtil.logClickAdsEvent(appContext, bundle) }
+        safely("facebook click") { FacebookEventUtils.logClickAdsEvent(appContext, bundle) }
+        safely("adjust click") { AdsAdjust.onTrackClickAds() }
+        safely("appsflyer click") { AdsAppsflyer.logEvent(appContext, "ad_click", bundle) }
     }
 
     @JvmStatic
     fun logCurrentTotalRevenueAd(context: Context, eventName: String) {
         val currentTotalRevenue = SharePreferenceUtils.getCurrentTotalRevenueAd(context)
         val bundle = Bundle().apply { putFloat("value", currentTotalRevenue) }
-        FirebaseAnalyticsUtil.logCurrentTotalRevenueAd(context, eventName, bundle)
-        FacebookEventUtils.logCurrentTotalRevenueAd(context, eventName, bundle)
-        AdsAppsflyer.logEvent(context, eventName, bundle)
+        safely("firebase $eventName") { FirebaseAnalyticsUtil.logCurrentTotalRevenueAd(context, eventName, bundle) }
+        safely("facebook $eventName") { FacebookEventUtils.logCurrentTotalRevenueAd(context, eventName, bundle) }
+        safely("appsflyer $eventName") { AdsAppsflyer.logEvent(context, eventName, bundle) }
     }
 
+    /** Pays out the pending 0.01 bucket if it has reached the threshold. */
     @JvmStatic
     fun logTotalRevenue001Ad(context: Context) {
-        val revenue = AppUtil.currentTotalRevenue001Ad
-        if (revenue / 1_000_000 >= 0.01) {
-            AppUtil.currentTotalRevenue001Ad = 0.0f
-            SharePreferenceUtils.updateCurrentTotalRevenue001Ad(context, 0.0f)
-            val bundle = Bundle().apply { putFloat("value", revenue / 1_000_000) }
-            FirebaseAnalyticsUtil.logTotalRevenue001Ad(context, bundle)
-            FacebookEventUtils.logTotalRevenue001Ad(context, bundle)
-            AdsAppsflyer.logEvent(context, "paid_ad_impression_value_001", bundle)
-        }
+        SharePreferenceUtils.addAdRevenueMicros(context, 0L).bucket001PayoutMicros
+            ?.let { logRevenue001Payout(context, it) }
+    }
+
+    private fun logRevenue001Payout(context: Context, payoutMicros: Long) {
+        val bundle = Bundle().apply { putFloat("value", RevenueMath.microsToUnit(payoutMicros).toFloat()) }
+        safely("firebase 001") { FirebaseAnalyticsUtil.logTotalRevenue001Ad(context, bundle) }
+        safely("facebook 001") { FacebookEventUtils.logTotalRevenue001Ad(context, bundle) }
+        safely("appsflyer 001") { AdsAppsflyer.logEvent(context, "paid_ad_impression_value_001", bundle) }
     }
 
     @JvmStatic
     fun logTotalRevenueAdIn3DaysIfNeed(context: Context) {
-        val installTime = SharePreferenceUtils.getInstallTime(context)
-        if (!SharePreferenceUtils.isPushRevenue3Day(context) && System.currentTimeMillis() - installTime >= 259_200_000L) {
-            Log.d(TAG, "logTotalRevenueAdAt3DaysIfNeed")
-            logCurrentTotalRevenueAd(context, "event_total_revenue_ad_in_3_days")
-            SharePreferenceUtils.setPushedRevenue3Day(context)
-        }
+        if (!isInstallOlderThan(context, THREE_DAYS_MS)) return
+        if (!SharePreferenceUtils.markPushedRevenue3DayIfNeeded(context)) return
+        Log.d(TAG, "logTotalRevenueAdAt3DaysIfNeed")
+        logCurrentTotalRevenueAd(context, "event_total_revenue_ad_in_3_days")
     }
 
     @JvmStatic
     fun logTotalRevenueAdIn7DaysIfNeed(context: Context) {
+        if (!isInstallOlderThan(context, SEVEN_DAYS_MS)) return
+        if (!SharePreferenceUtils.markPushedRevenue7DayIfNeeded(context)) return
+        Log.d(TAG, "logTotalRevenueAdAt7DaysIfNeed")
+        logCurrentTotalRevenueAd(context, "event_total_revenue_ad_in_7_days")
+    }
+
+    /** An unrecorded install time (0) is "unknown", not "installed in 1970". */
+    private fun isInstallOlderThan(context: Context, ageMs: Long): Boolean {
         val installTime = SharePreferenceUtils.getInstallTime(context)
-        if (!SharePreferenceUtils.isPushRevenue7Day(context) && System.currentTimeMillis() - installTime >= 604_800_000L) {
-            Log.d(TAG, "logTotalRevenueAdAt7DaysIfNeed")
-            logCurrentTotalRevenueAd(context, "event_total_revenue_ad_in_7_days")
-            SharePreferenceUtils.setPushedRevenue7Day(context)
-        }
+        return installTime > 0L && System.currentTimeMillis() - installTime >= ageMs
     }
 
     @JvmStatic
@@ -101,61 +141,79 @@ object AdsLogEventManager {
         AdsAdjust.onTrackRevenue(eventName, revenue, currency)
 
     @JvmStatic
-    fun onTrackRevenuePurchase(revenue: Float, currency: String, productId: String, purchaseToken: String, typeIAP: Int) {
-        AdsAdjust.onTrackRevenuePurchase(revenue, currency, productId, purchaseToken)
-        AdsAppsflyer.logPurchase(revenue.toDouble(), currency, productId)
+    fun onTrackRevenuePurchase(revenue: Float, currency: String, productId: String, purchaseToken: String, typeIAP: Int) =
+        trackPurchaseRevenue(revenue.toDouble(), currency, productId, purchaseToken, orderId = null)
+
+    /** One-time IAP revenue to Adjust and AppsFlyer. The billing layer guarantees one call per purchase. */
+    internal fun trackPurchaseRevenue(revenue: Double, currency: String, productId: String, purchaseToken: String, orderId: String?) {
+        safely("adjust purchase") { AdsAdjust.trackPurchase(revenue, currency, productId, purchaseToken, orderId) }
+        safely("appsflyer purchase") {
+            AdsAppsflyer.logPurchase(revenue, currency, productId, AdsAppsflyer.CONTENT_TYPE_INAPP, orderId)
+        }
     }
 
+    /** Subscription start revenue (first paid phase of the purchased offer) to Adjust and AppsFlyer. */
+    internal fun trackSubscriptionRevenue(
+        priceMicros: Long,
+        currency: String,
+        productId: String,
+        orderId: String,
+        signature: String,
+        purchaseToken: String,
+        purchaseTime: Long,
+    ) {
+        safely("adjust subscription") {
+            AdsAdjust.onTrackRevenueSubscription(priceMicros, currency, productId, orderId, signature, purchaseToken, purchaseTime)
+        }
+        safely("appsflyer subscription") {
+            AdsAppsflyer.logPurchase(
+                RevenueMath.microsToUnit(priceMicros), currency, productId, AdsAppsflyer.CONTENT_TYPE_SUBS, orderId,
+            )
+        }
+    }
+
+    @Deprecated(
+        message = "Uses the current time as purchase time. Pass the Purchase's purchaseTime.",
+        replaceWith = ReplaceWith("onTrackRevenueSubscription(priceMicros, currency, productId, orderId, signature, purchaseToken, purchaseTime)")
+    )
     @JvmStatic
     fun onTrackRevenueSubscription(priceMicros: Long, currency: String, productId: String, orderId: String, signature: String, purchaseToken: String) =
-        AdsAdjust.onTrackRevenueSubscription(priceMicros, currency, productId, orderId, signature, purchaseToken)
+        trackSubscriptionRevenue(priceMicros, currency, productId, orderId, signature, purchaseToken, System.currentTimeMillis())
+
+    @JvmStatic
+    fun onTrackRevenueSubscription(
+        priceMicros: Long,
+        currency: String,
+        productId: String,
+        orderId: String,
+        signature: String,
+        purchaseToken: String,
+        purchaseTime: Long,
+    ) = trackSubscriptionRevenue(priceMicros, currency, productId, orderId, signature, purchaseToken, purchaseTime)
 
     @JvmStatic
     fun pushTrackEvent(adValue: AdValue, adSourceName: String) =
         AdsAdjust.pushTrackEvent(adValue, adSourceName)
 
+    /**
+     * Impression lifecycle signal. Firebase's `ad_impression` is no longer sent from here: it is
+     * logged with value/currency from the paid callback instead (a value-less copy here counted
+     * every impression twice with zero revenue).
+     */
     @JvmStatic
     fun onTrackImpression(context: Context) {
-        AdsAdjust.onTrackImpression()
-        FirebaseAnalyticsUtil.logAdImpression(context)
-        FacebookEventUtils.logAdImpression(context)
-        AdsAppsflyer.logEvent(context, "ad_impression")
+        val appContext = context.applicationContext
+        safely("adjust impression") { AdsAdjust.onTrackImpression() }
+        safely("facebook impression") { FacebookEventUtils.logAdImpression(appContext) }
+        safely("appsflyer impression") { AdsAppsflyer.logEvent(appContext, "ad_impression") }
     }
 
-    private fun logEventWithAds(context: Context, revenue: Float, precision: Int, adUnitId: String, network: String?) {
-        Log.d(TAG, "Paid event of value %.0f microcents in currency USD of precision %s%n occurred for ad unit %s from ad network %s. mediation provider:%n"
-            .format(revenue, precision, adUnitId, network))
-        val params = Bundle().apply {
-            putDouble("valuemicros", revenue.toDouble())
-            putString("currency", "USD")
-            putInt("precision", precision)
-            putString("adunitid", adUnitId)
-            putString("network", network)
+    /** One analytics SDK failing (not initialized, missing app id) must not drop the others or crash the SDK thread. */
+    private inline fun safely(destination: String, block: () -> Unit) {
+        try {
+            block()
+        } catch (e: Exception) {
+            Log.w(TAG, "$destination failed: ${e.message}")
         }
-        logPaidAdImpressionValue(context, revenue / 1_000_000.0, precision, adUnitId, network)
-        FirebaseAnalyticsUtil.logEventWithAds(context, params)
-        FacebookEventUtils.logEventWithAds(context, params)
-        AdsAppsflyer.logEvent(context, "paid_ad_impression", params)
-        SharePreferenceUtils.updateCurrentTotalRevenueAd(context, revenue)
-        logCurrentTotalRevenueAd(context, "event_current_total_revenue_ad")
-        AppUtil.currentTotalRevenue001Ad += revenue
-        SharePreferenceUtils.updateCurrentTotalRevenue001Ad(context, AppUtil.currentTotalRevenue001Ad)
-        logTotalRevenue001Ad(context)
-        logTotalRevenueAdIn3DaysIfNeed(context)
-        logTotalRevenueAdIn7DaysIfNeed(context)
-    }
-
-    private fun logPaidAdImpressionValue(context: Context, value: Double, precision: Int, adUnitId: String, network: String?) {
-        val params = Bundle().apply {
-            putDouble("value", value)
-            putString("currency", "USD")
-            putInt("precision", precision)
-            putString("adunitid", adUnitId)
-            putString("network", network)
-        }
-        AdsAdjust.logPaidAdImpressionValue(value, "USD")
-        FirebaseAnalyticsUtil.logPaidAdImpressionValue(context, params)
-        FacebookEventUtils.logPaidAdImpressionValue(context, params)
-        AdsAppsflyer.logEvent(context, "paid_ad_impression_value", params)
     }
 }

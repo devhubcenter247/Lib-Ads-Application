@@ -25,7 +25,7 @@ import com.lib.ads.gma.ads.billing.AppPurchase
 import com.lib.ads.gma.ads.dialog.ResumeLoadingDialog
 import com.lib.ads.gma.ads.engine.AdsProvider
 import com.lib.ads.gma.ads.event.AdsLogEventManager
-import com.lib.ads.gma.ads.helper.extension.extractAdUnitIdOrNull
+import com.lib.ads.gma.ads.helper.extension.adUnitIdOrEmpty
 import com.lib.ads.gma.ads.listener.AdResumePreShowListener
 import com.lib.ads.gma.ads.manager.AdsManager
 import com.lib.ads.gma.ads.model.AdType
@@ -385,7 +385,7 @@ class AppOpenManager private constructor() : Application.ActivityLifecycleCallba
         // bailing out first avoids draining a buffered ad for a show that was never going to happen.
         val ad = pollReadyAd() ?: return
         try { hideDialogLoading(); showDialogLoading() } catch (e: Exception) { e.printStackTrace() }
-        val adUnitId = ad.getResponseInfo().extractAdUnitIdOrNull().orEmpty()
+        val adUnitId = ad.adUnitIdOrEmpty()
         ad.adEventCallback = object : AppOpenAdEventCallback {
             override fun onAdDismissedFullScreenContent() {
                 isShowingAd = false; hideDialogLoading()
@@ -405,7 +405,7 @@ class AppOpenManager private constructor() : Application.ActivityLifecycleCallba
             override fun onAdClicked() { AdsLogEventManager.logClickAdsEvent(activity, adUnitId) }
             override fun onAdImpression() { AdsLogEventManager.onTrackImpression(activity) }
             override fun onAdPaid(value: AdValue) {
-                AdsLogEventManager.logPaidAdImpression(activity, value, ad.getResponseInfo(), AdType.APP_OPEN)
+                AdsLogEventManager.logPaidAdImpression(activity, value, ad, AdType.APP_OPEN)
             }
         }
         ad.show(activity)

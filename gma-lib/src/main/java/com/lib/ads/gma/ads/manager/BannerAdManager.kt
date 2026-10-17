@@ -15,7 +15,7 @@ import com.google.android.libraries.ads.mobile.sdk.common.LoadAdError
 import com.lib.ads.gma.ads.billing.AppPurchase
 import com.lib.ads.gma.ads.engine.whenAdsReady
 import com.lib.ads.gma.ads.event.AdsLogEventManager
-import com.lib.ads.gma.ads.helper.extension.extractAdUnitIdOrNull
+import com.lib.ads.gma.ads.helper.extension.adUnitIdOrEmpty
 import com.lib.ads.gma.ads.helper.banner.BannerHeightConfig
 import com.lib.ads.gma.ads.helper.banner.params.BannerSize
 import com.lib.ads.gma.ads.model.AdType
@@ -29,7 +29,7 @@ object BannerAdManager {
 
     /** Wires click/impression/paid-event analytics for a loaded [BannerAd], scoped to [context]. */
     internal fun bindBannerAdListener(context: Context, ad: BannerAd, callback: BannerAdListener = object : BannerAdListener {}) {
-        val adUnitId = ad.getResponseInfo().extractAdUnitIdOrNull().orEmpty()
+        val adUnitId = ad.adUnitIdOrEmpty()
         ad.adEventCallback = object : BannerAdEventCallback {
             override fun onAdClicked() {
                 AdsLogEventManager.logClickAdsEvent(context, adUnitId)
@@ -40,7 +40,7 @@ object BannerAdManager {
                 callback.onImpression(null)
             }
             override fun onAdPaid(value: AdValue) {
-                AdsLogEventManager.logPaidAdImpression(context, value, ad.getResponseInfo(), AdType.BANNER)
+                AdsLogEventManager.logPaidAdImpression(context, value, ad, AdType.BANNER)
                 callback.onPaid(value)
             }
             override fun onAppEvent(name: String, data: String?) = callback.onAppEvent(name, data)

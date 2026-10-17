@@ -507,7 +507,7 @@ open class InterstitialAdHelper(
             override fun onAdPaid(value: AdValue) {
                 scope.launch {
                     logZ("onAdPaid: ${value.valueMicros}")
-                    AdsLogEventManager.logPaidAdImpression(appCtx, value, interstitialAd.getResponseInfo(), AdType.INTERSTITIAL)
+                    AdsLogEventManager.logPaidAdImpression(appCtx, value, interstitialAd, AdType.INTERSTITIAL)
                     invokeAdListener { it.onPaid(value) }
                 }
             }

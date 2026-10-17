@@ -35,6 +35,7 @@ class AppPurchase private constructor() {
     private var updatePurchaseListener: UpdatePurchaseListener? = null
     private var compatibilityPurchaseListener: PurchaseListener? = null
     private var enableTrackingRevenue: Boolean = false
+    private var recoveredConsumableListener: ((PurchaseEvent.Success) -> Unit)? = null
     private var logProductDetail: Boolean = false
     private var discount: Double = 1.0
     private var configuredPurchaseItems: List<PurchaseItem> = emptyList()
@@ -148,11 +149,23 @@ class AppPurchase private constructor() {
         }
     }
 
+    @Deprecated("Never gated anything: IAP revenue is always reported, once per purchase token.")
     fun setEnableTrackingRevenue(enable: Boolean) {
         enableTrackingRevenue = enable
     }
 
+    @Deprecated("Never gated anything: IAP revenue is always reported, once per purchase token.")
     fun getEnableTrackingRevenue(): Boolean = enableTrackingRevenue
+
+    /**
+     * Receives a consumable whose payment completed while the app was not running (e.g. a pending
+     * cash payment). Grant its content here — the SDK consumes it right after this call. Delivered
+     * on the main thread. Set before [initBilling].
+     */
+    fun setRecoveredConsumableListener(listener: ((PurchaseEvent.Success) -> Unit)?) {
+        recoveredConsumableListener = listener
+        processor?.onRecoveredConsumable = listener
+    }
 
     /** Enable or disable verbose Play Store ProductDetails logs. */
     fun setLogProductDetail(enable: Boolean) = apply {
@@ -185,12 +198,14 @@ class AppPurchase private constructor() {
         connectionManager = connMgr
 
         val proc = PurchaseProcessor(
+            context = application,
             connectionManager = connMgr,
             repository = repo,
             verifier = vfy,
             useDevTestPurchase = { AppUtil.VARIANT_DEV },
         ).apply {
             onPurchaseStatusUpdate = { triggerUpdatePurchaseStatus() }
+            onRecoveredConsumable = recoveredConsumableListener
         }
         processor = proc
 
@@ -237,6 +252,9 @@ class AppPurchase private constructor() {
                         repo.productIdMap,
                         shouldConsume = { productId -> repo.shouldConsume(productId) },
                         getEntitlements = { productId -> repo.getEntitlements(productId) },
+                        onRecovered = { purchase, productId, isSubscription ->
+                            proc.onRecovered(purchase, productId, isSubscription)
+                        },
                         onComplete = { code ->
                             AppLogger.i(
                                 TAG,
@@ -275,6 +293,7 @@ class AppPurchase private constructor() {
                                             "subscriptions=${repo.getSubscriptionProductIds()}"
                                     )
                                     productQueryCode = queryResult.responseCode
+                                    proc.onProductDetailsReady()
                                     productQueryDone.set(true)
                                     notifyWhenBillingDataReady()
                                 },
@@ -302,6 +321,9 @@ class AppPurchase private constructor() {
             repo.productIdMap,
             shouldConsume = { productId -> repo.shouldConsume(productId) },
             getEntitlements = { productId -> repo.getEntitlements(productId) },
+            onRecovered = { purchase, productId, isSubscription ->
+                processor?.onRecovered(purchase, productId, isSubscription)
+            },
             onComplete = {
                 AppLogger.d(TAG, "updatePurchaseStatus: completed")
                 updatePurchaseListener?.onUpdateFinished()

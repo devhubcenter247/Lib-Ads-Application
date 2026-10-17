@@ -10,7 +10,7 @@ class GmaApplication : AdsMultiDexApplication() {
 
     override fun createAdSdkConfig(): AdSdkConfig = AdSdkConfig(
         this,
-        AdSdkConfig.ENVIRONMENT_DEVELOP,
+        if (BuildConfig.env_dev) AdSdkConfig.ENVIRONMENT_DEVELOP else AdSdkConfig.ENVIRONMENT_PRODUCTION,
     ).apply {
         appAdId = getString(R.string.admod_app_id)
         listIdAdResume = listOf(BuildConfig.ads_open_app)

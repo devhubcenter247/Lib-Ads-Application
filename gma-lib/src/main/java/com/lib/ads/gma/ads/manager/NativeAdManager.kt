@@ -26,7 +26,7 @@ import com.lib.ads.gma.ads.engine.whenAdsReady
 import com.lib.ads.gma.ads.event.AdsLogEventManager
 import com.lib.ads.gma.ads.helper.adnative.NativeAdRequestOptions
 import com.lib.ads.gma.ads.helper.adnative.toNativeAdRequest
-import com.lib.ads.gma.ads.helper.extension.extractAdUnitIdOrNull
+import com.lib.ads.gma.ads.helper.extension.adUnitIdOrEmpty
 import com.lib.ads.gma.ads.model.AdType
 import com.lib.ads.gma.ads.model.wrapper.ApAdError
 import com.lib.ads.gma.ads.model.wrapper.ApNativeAd
@@ -222,7 +222,7 @@ object NativeAdManager {
      */
     fun bindNativeAdEventCallback(context: Context, nativeAd: NativeAd, listener: NativeAdListener? = null) {
         val wrappedAd = ApNativeAd(0, nativeAd)
-        val adUnitId = nativeAd.getResponseInfo().extractAdUnitIdOrNull().orEmpty()
+        val adUnitId = nativeAd.adUnitIdOrEmpty()
         nativeAd.adEventCallback = object : NativeAdEventCallback {
             override fun onAdClicked() {
                 AdsLogEventManager.logClickAdsEvent(context, adUnitId)
@@ -233,7 +233,7 @@ object NativeAdManager {
                 listener?.onImpression(wrappedAd)
             }
             override fun onAdPaid(value: AdValue) {
-                AdsLogEventManager.logPaidAdImpression(context, value, nativeAd.getResponseInfo(), AdType.NATIVE)
+                AdsLogEventManager.logPaidAdImpression(context, value, nativeAd, AdType.NATIVE)
                 listener?.onPaid(value)
             }
             override fun onAdShowedFullScreenContent() {

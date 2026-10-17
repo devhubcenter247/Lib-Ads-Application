@@ -52,6 +52,18 @@ class AdSdkConfig(
      * left `false` by default since it changes mediation init ordering and should be A/B'd.
      */
     var skipUninitializedAdaptersForSplash: Boolean = false
+    /**
+     * Logs the GA4 reserved `ad_impression` (value, currency, ad_platform, ad_source, ad_format,
+     * ad_unit_name) from every paid callback. Turn off only when the AdMob app is linked to Firebase
+     * with automatic ad_impression collection — check DebugView first, otherwise revenue doubles.
+     */
+    var logFirebaseAdImpression: Boolean = true
+
+    /**
+     * Forwards the UMP/TCF decision to Firebase Consent Mode v2 and Adjust (Google DMA) whenever
+     * consent is resolved or changes. Does nothing outside the EEA flow (no TCF data stored).
+     */
+    var propagateConsent: Boolean = true
     var adjustConfig: AdjustConfig? = null
     var appsflyerConfig: AppsflyerConfig? = null
     var adapterInitializationConfig: AdapterInitializationConfig? = null

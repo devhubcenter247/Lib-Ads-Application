@@ -214,7 +214,7 @@ object InterstitialAdManager {
                     AdsLogEventManager.logPaidAdImpression(
                         activity,
                         value,
-                        interstitialAd.getResponseInfo(),
+                        interstitialAd,
                         AdType.INTERSTITIAL
                     )
                     oneShotCallback?.onPaid(value)

@@ -12,7 +12,7 @@ import com.lib.ads.gma.ads.engine.AdsProvider
 import com.lib.ads.gma.ads.event.AdsLogEventManager
 import com.lib.ads.gma.ads.helper.appopen.preload.AppOpenAdPreload
 import com.lib.ads.gma.ads.helper.canRequestFullScreenAds
-import com.lib.ads.gma.ads.helper.extension.extractAdUnitIdOrNull
+import com.lib.ads.gma.ads.helper.extension.adUnitIdOrEmpty
 import com.lib.ads.gma.ads.helper.fullscreen.ForegroundGateHandle
 import com.lib.ads.gma.ads.helper.fullscreen.dismissSafely
 import com.lib.ads.gma.ads.helper.fullscreen.isAppInForeground
@@ -352,7 +352,7 @@ class AppOpenAdHelper(
             failShow(callback, "Activity can no longer show an app-open ad")
             return
         }
-        val adUnitId = ad.getResponseInfo().extractAdUnitIdOrNull().orEmpty()
+        val adUnitId = ad.adUnitIdOrEmpty()
         ad.adEventCallback = object : AppOpenAdEventCallback {
             override fun onAdShowedFullScreenContent() {
                 scope.launch {
@@ -398,7 +398,7 @@ class AppOpenAdHelper(
                     AdsLogEventManager.logPaidAdImpression(
                         activity,
                         adValue,
-                        ad.getResponseInfo(),
+                        ad,
                         AdType.APP_OPEN
                     )
                     dispatch(callback) { it.onPaid(adValue) }

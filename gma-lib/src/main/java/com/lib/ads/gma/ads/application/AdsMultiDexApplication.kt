@@ -2,6 +2,7 @@ package com.lib.ads.gma.ads.application
 
 import androidx.multidex.MultiDexApplication
 import com.google.android.libraries.ads.mobile.sdk.common.ExperimentalApi
+import com.google.android.ump.UserMessagingPlatform
 import com.lib.ads.gma.ads.config.AdSdkConfig
 import com.lib.ads.gma.ads.engine.AdsProvider
 import com.lib.ads.gma.ads.event.FirebaseAnalyticsUtil
@@ -16,8 +17,15 @@ abstract class AdsMultiDexApplication : MultiDexApplication() {
    /** Build the complete SDK config before the single automatic initialize call. */
     protected abstract fun createAdSdkConfig(): AdSdkConfig
 
-    /** Override when UMP consent must be collected before GMA initialization. */
+    /**
+     * Override when UMP consent must be collected before GMA initialization. Even then, GMA is
+     * initialized here when consent was already given in an earlier session — a process restored
+     * straight into a non-splash screen would otherwise run the whole session without ads.
+     */
     protected open fun initializeAdsOnCreate(): Boolean = true
+
+    /** Starts Adjust / AppsFlyer in onCreate, independent of GMA. Override to defer them yourself. */
+    protected open fun initializeAttributionOnCreate(): Boolean = true
 
     fun initializeAds(onReady: (() -> Unit)? = null) {
         AdsProvider.getInstance().initialize(this, adSdkConfig, onReady)
@@ -33,16 +41,20 @@ abstract class AdsMultiDexApplication : MultiDexApplication() {
         // be deferred (consent-first apps), but billing reads VARIANT_DEV as soon as it starts.
         AppUtil.VARIANT_DEV = adSdkConfig.isVariantDev
         if (adSdkConfig.enableLog) AdsProvider.getInstance().isEnableAdsLog = true
-        AdsProvider.getInstance().setDeferredInitializer { initializeAds() }
-        if (initializeAdsOnCreate()) {
-            initializeAds()
-        }
         if (SharePreferenceUtils.getInstallTime(this) == 0L) {
             SharePreferenceUtils.setInstallTime(this)
         }
         FirebaseAnalyticsUtil.init(this)
 
-        AppUtil.currentTotalRevenue001Ad =
-            SharePreferenceUtils.getCurrentTotalRevenue001Ad(this)
+        if (initializeAttributionOnCreate()) {
+            AdsProvider.getInstance().initAttribution(this, adSdkConfig)
+        }
+        AdsProvider.getInstance().setDeferredInitializer { initializeAds() }
+        if (initializeAdsOnCreate() || hasStoredAdConsent()) {
+            initializeAds()
+        }
     }
+
+    private fun hasStoredAdConsent(): Boolean =
+        runCatching { UserMessagingPlatform.getConsentInformation(this).canRequestAds() }.getOrDefault(false)
 }

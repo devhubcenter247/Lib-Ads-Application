@@ -208,8 +208,8 @@ object AppOpenAdManager {
                     AdsLogEventManager.logPaidAdImpression(
                         activity,
                         value,
-                        appOpenAd.getResponseInfo(),
-                        AdType.INTERSTITIAL
+                        appOpenAd,
+                        AdType.APP_OPEN
                     )
                     oneShotCallback?.onPaid(value)
                 }

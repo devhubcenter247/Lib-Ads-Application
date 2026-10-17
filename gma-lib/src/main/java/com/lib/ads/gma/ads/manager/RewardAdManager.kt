@@ -10,7 +10,7 @@ import com.lib.ads.gma.ads.billing.AppPurchase
 import com.lib.ads.gma.ads.engine.AdsProvider
 import com.lib.ads.gma.ads.engine.whenAdsReady
 import com.lib.ads.gma.ads.event.AdsLogEventManager
-import com.lib.ads.gma.ads.helper.extension.extractAdUnitIdOrNull
+import com.lib.ads.gma.ads.helper.extension.adUnitIdOrEmpty
 import com.lib.ads.gma.ads.helper.fullscreen.dismissSafely
 import com.lib.ads.gma.ads.model.AdType
 import com.lib.ads.gma.ads.model.wrapper.*
@@ -275,8 +275,7 @@ object RewardAdManager {
         val earnedReward = AtomicBoolean(false)
         if (apAd.isRewardInterstitial()) {
             val ad = apAd.rewardInterstitial!!
-            val responseInfo = ad.getResponseInfo()
-            val adUnitId = responseInfo.extractAdUnitIdOrNull().orEmpty()
+            val adUnitId = ad.adUnitIdOrEmpty()
             ad.adEventCallback =(object : RewardedInterstitialAdEventCallback {
                 override fun onAdDismissedFullScreenContent() = runOnMain {
                     waitingDialog.dismissSafely()
@@ -308,7 +307,7 @@ object RewardAdManager {
                 }
 
                 override fun onAdPaid(value: AdValue) {
-                    AdsLogEventManager.logPaidAdImpression(activity, value, responseInfo, AdType.REWARDED)
+                    AdsLogEventManager.logPaidAdImpression(activity, value, ad, AdType.REWARDED_INTERSTITIAL)
                     runOnMain { listener.onPaid(value) }
                 }
                 override fun onAdMetadataChanged() = runOnMain {
@@ -321,8 +320,7 @@ object RewardAdManager {
             }
         } else {
             val ad = apAd.rewardAd!!
-            val responseInfo = ad.getResponseInfo()
-            val adUnitId = responseInfo.extractAdUnitIdOrNull().orEmpty()
+            val adUnitId = ad.adUnitIdOrEmpty()
             ad.adEventCallback =(object : RewardedAdEventCallback {
                 override fun onAdDismissedFullScreenContent() = runOnMain {
                     waitingDialog.dismissSafely()
@@ -354,7 +352,7 @@ object RewardAdManager {
                 }
 
                 override fun onAdPaid(adValue: AdValue) {
-                    AdsLogEventManager.logPaidAdImpression(activity, adValue, responseInfo, AdType.REWARDED)
+                    AdsLogEventManager.logPaidAdImpression(activity, adValue, ad, AdType.REWARDED)
                     runOnMain { listener.onPaid(adValue) }
                 }
                 override fun onAdMetadataChanged() = runOnMain {
