@@ -5,6 +5,8 @@ import com.google.android.libraries.ads.mobile.sdk.appopen.AppOpenAd
 import com.google.android.libraries.ads.mobile.sdk.common.AdLoadCallback
 import com.google.android.libraries.ads.mobile.sdk.common.LoadAdError
 import com.lib.ads.gma.ads.engine.AdsProvider
+import com.lib.ads.gma.ads.event.AdHealthEvents
+import com.lib.ads.gma.ads.model.AdType
 import com.lib.ads.gma.ads.engine.whenAdsReady
 import com.lib.ads.gma.ads.helper.fullscreen.preload.FullScreenAdStore
 import com.lib.ads.gma.ads.helper.fullscreen.preload.WeightedAdUnit
@@ -146,13 +148,19 @@ object AppOpenAdPreload {
     }
 
     private fun loadOne(adUnitId: String, placementId: Long?, callback: AppOpenLoadCallback) {
+        val startedAt = AdHealthEvents.now()
         AppOpenAd.load(
             AdsManager.getAdRequest(adUnitId, placementId),
             object : AdLoadCallback<AppOpenAd> {
                 // Background-thread SDK callbacks; the waterfall and listeners run on main.
-                override fun onAdLoaded(ad: AppOpenAd) = runOnMain { callback.onLoaded(ad) }
-                override fun onAdFailedToLoad(adError: LoadAdError) =
+                override fun onAdLoaded(ad: AppOpenAd) {
+                    AdHealthEvents.loadFinished(AdType.APP_OPEN, adUnitId, startedAt, null)
+                    runOnMain { callback.onLoaded(ad) }
+                }
+                override fun onAdFailedToLoad(adError: LoadAdError) {
+                    AdHealthEvents.loadFinished(AdType.APP_OPEN, adUnitId, startedAt, adError)
                     runOnMain { callback.onFailed(ApAdError(adError)) }
+                }
             },
         )
     }

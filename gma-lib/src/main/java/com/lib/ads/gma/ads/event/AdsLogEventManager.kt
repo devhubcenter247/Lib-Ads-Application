@@ -60,11 +60,17 @@ object AdsLogEventManager {
         safely("adjust ad revenue") { AdsAdjust.trackAdRevenue(impression) }
         safely("appsflyer ad revenue") { AdsAppsflyer.logPaidAdImpression(impression) }
 
+        val config = AdsProvider.getInstance().adConfigOrNull
         val snapshot = SharePreferenceUtils.addAdRevenueMicros(appContext, impression.valueMicros)
-        logCurrentTotalRevenueAd(appContext, "event_current_total_revenue_ad")
+        if (config?.logTotalRevenueEachImpression != false) {
+            logCurrentTotalRevenueAd(appContext, "event_current_total_revenue_ad")
+        }
         snapshot.bucket001PayoutMicros?.let { logRevenue001Payout(appContext, it) }
         logTotalRevenueAdIn3DaysIfNeed(appContext)
         logTotalRevenueAdIn7DaysIfNeed(appContext)
+        config?.dailyAdsRevenue?.let { daily ->
+            safely("daily ads revenue") { DailyAdsRevenue.onPaidImpression(appContext, impression, daily) }
+        }
     }
 
     @JvmStatic
@@ -150,7 +156,30 @@ object AdsLogEventManager {
         safely("appsflyer purchase") {
             AdsAppsflyer.logPurchase(revenue, currency, productId, AdsAppsflyer.CONTENT_TYPE_INAPP, orderId)
         }
+        logFirebasePurchaseIfEnabled(revenue, currency, productId, AdsAppsflyer.CONTENT_TYPE_INAPP, orderId)
     }
+
+    /** Opt-in (AdSdkConfig.logFirebasePurchase) — off by default to avoid doubling GA4's automatic in_app_purchase. */
+    private fun logFirebasePurchaseIfEnabled(revenue: Double, currency: String, productId: String, contentType: String, orderId: String?) {
+        if (AdsProvider.getInstance().adConfigOrNull?.logFirebasePurchase != true) return
+        val context = AdsProvider.getInstance().applicationContextOrNull() ?: return
+        safely("firebase purchase") {
+            FirebaseAnalyticsUtil.logEventTracking(
+                context,
+                com.google.firebase.analytics.FirebaseAnalytics.Event.PURCHASE,
+                purchaseParams(revenue, currency, productId, contentType, orderId).toBundle(),
+            )
+        }
+    }
+
+    internal fun purchaseParams(revenue: Double, currency: String, productId: String, contentType: String, orderId: String?): Map<String, Any> =
+        buildMap {
+            put("value", revenue)
+            put("currency", currency)
+            put("item_id", productId)
+            put("item_category", contentType)
+            orderId?.takeIf { it.isNotBlank() }?.let { put("transaction_id", it) }
+        }
 
     /** Subscription start revenue (first paid phase of the purchased offer) to Adjust and AppsFlyer. */
     internal fun trackSubscriptionRevenue(
@@ -170,6 +199,7 @@ object AdsLogEventManager {
                 RevenueMath.microsToUnit(priceMicros), currency, productId, AdsAppsflyer.CONTENT_TYPE_SUBS, orderId,
             )
         }
+        logFirebasePurchaseIfEnabled(RevenueMath.microsToUnit(priceMicros), currency, productId, AdsAppsflyer.CONTENT_TYPE_SUBS, orderId)
     }
 
     @Deprecated(

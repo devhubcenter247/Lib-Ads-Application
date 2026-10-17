@@ -14,6 +14,7 @@ import com.google.android.libraries.ads.mobile.sdk.common.AdValue
 import com.google.android.libraries.ads.mobile.sdk.common.LoadAdError
 import com.lib.ads.gma.ads.billing.AppPurchase
 import com.lib.ads.gma.ads.engine.whenAdsReady
+import com.lib.ads.gma.ads.event.AdHealthEvents
 import com.lib.ads.gma.ads.event.AdsLogEventManager
 import com.lib.ads.gma.ads.helper.extension.adUnitIdOrEmpty
 import com.lib.ads.gma.ads.helper.banner.BannerHeightConfig
@@ -217,16 +218,23 @@ object BannerAdManager {
         val request = getAdRequestForCollapsibleBanner(id, adSize, collapsibleGravity, placementId)
         // The Next-Gen SDK calls load callbacks on a background thread; the AdView is a View, so
         // destroying it and handing it to the caller (who attaches it) must happen on main.
+        val startedAt = AdHealthEvents.now()
         adView.loadAd(request, object : AdLoadCallback<BannerAd> {
-            override fun onAdLoaded(ad: BannerAd) = runOnMain {
-                onLoadedAd?.invoke(ad)
-                bindBannerAdListener(appContext, ad, callback)
-                callback.onLoaded(adView)
+            override fun onAdLoaded(ad: BannerAd) {
+                AdHealthEvents.loadFinished(AdType.BANNER, id, startedAt, null)
+                runOnMain {
+                    onLoadedAd?.invoke(ad)
+                    bindBannerAdListener(appContext, ad, callback)
+                    callback.onLoaded(adView)
+                }
             }
 
-            override fun onAdFailedToLoad(adError: LoadAdError) = runOnMain {
-                adView.destroy()
-                callback.onFailed(ApAdError(adError))
+            override fun onAdFailedToLoad(adError: LoadAdError) {
+                AdHealthEvents.loadFinished(AdType.BANNER, id, startedAt, adError)
+                runOnMain {
+                    adView.destroy()
+                    callback.onFailed(ApAdError(adError))
+                }
             }
         })
     }

@@ -9,6 +9,7 @@ import com.google.android.libraries.ads.mobile.sdk.common.AdLoadCallback
 import com.google.android.libraries.ads.mobile.sdk.common.FullScreenContentError
 import com.google.android.libraries.ads.mobile.sdk.common.LoadAdError
 import com.lib.ads.gma.ads.engine.AdsProvider
+import com.lib.ads.gma.ads.event.AdHealthEvents
 import com.lib.ads.gma.ads.event.AdsLogEventManager
 import com.lib.ads.gma.ads.helper.appopen.preload.AppOpenAdPreload
 import com.lib.ads.gma.ads.helper.canRequestFullScreenAds
@@ -315,10 +316,12 @@ class AppOpenAdHelper(
     private suspend fun loadSingleAppOpenAd(id: String): AppOpenPreloadState =
         withContext(Dispatchers.Main.immediate) {
             suspendCancellableCoroutine { continuation ->
+                val startedAt = AdHealthEvents.now()
                 AppOpenAd.load(
                     AdsManager.getAdRequest(id, config.placementId),
                     object : AdLoadCallback<AppOpenAd> {
                         override fun onAdLoaded(ad: AppOpenAd) {
+                            AdHealthEvents.loadFinished(AdType.APP_OPEN, id, startedAt, null)
                             AppLogger.w(TAG, "onAdLoaded: $id")
                             ad.setImmersiveMode(true)
                             if (continuation.isActive) {
@@ -327,6 +330,7 @@ class AppOpenAdHelper(
                         }
 
                         override fun onAdFailedToLoad(adError: LoadAdError) {
+                            AdHealthEvents.loadFinished(AdType.APP_OPEN, id, startedAt, adError)
                             AppLogger.w(TAG, "onAdFailedToLoad: ${adError.message}")
                             if (continuation.isActive) {
                                 continuation.resume(AppOpenPreloadState.Error(adError))
@@ -372,6 +376,7 @@ class AppOpenAdHelper(
             }
 
             override fun onAdFailedToShowFullScreenContent(fullScreenContentError: FullScreenContentError) {
+                AdHealthEvents.showFailed(AdType.APP_OPEN, adUnitId, fullScreenContentError.message)
                 scope.launch {
                     dialog.dismissSafely()
                     AdsProvider.getInstance().setFullScreenAdShowing(false)

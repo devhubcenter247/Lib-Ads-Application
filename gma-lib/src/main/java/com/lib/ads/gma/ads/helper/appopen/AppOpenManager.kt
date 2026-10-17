@@ -24,6 +24,7 @@ import com.google.android.libraries.ads.mobile.sdk.common.PreloadConfiguration
 import com.lib.ads.gma.ads.billing.AppPurchase
 import com.lib.ads.gma.ads.dialog.ResumeLoadingDialog
 import com.lib.ads.gma.ads.engine.AdsProvider
+import com.lib.ads.gma.ads.event.AdHealthEvents
 import com.lib.ads.gma.ads.event.AdsLogEventManager
 import com.lib.ads.gma.ads.helper.extension.adUnitIdOrEmpty
 import com.lib.ads.gma.ads.listener.AdResumePreShowListener
@@ -396,6 +397,7 @@ class AppOpenManager private constructor() : Application.ActivityLifecycleCallba
                 loadAppOpenResume()
             }
             override fun onAdFailedToShowFullScreenContent(fullScreenContentError: FullScreenContentError) {
+                AdHealthEvents.showFailed(AdType.APP_OPEN, adUnitId, fullScreenContentError.message)
                 isShowingAd = false; hideDialogLoading()
                 AdsProvider.getInstance().setFullScreenAdShowing(false)
                 loadAppOpenResume()

@@ -8,6 +8,7 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import com.lib.ads.gma.ads.dialog.PrepareLoadingAdsDialog
 import com.lib.ads.gma.ads.engine.AdsProvider
+import com.lib.ads.gma.ads.event.AdHealthEvents
 import com.lib.ads.gma.ads.event.AdsLogEventManager
 import com.lib.ads.gma.ads.helper.AdsHelper
 import com.lib.ads.gma.ads.helper.IAdsConfig
@@ -351,10 +352,12 @@ open class InterstitialAdHelper(
     private suspend fun loadSingleAd(adId: String): InterstitialAd? {
         return withTimeoutOrNull(config.loadTimeout.milliseconds) {
             suspendCancellableCoroutine { continuation ->
+                val startedAt = AdHealthEvents.now()
                 InterstitialAd.load(
                     AdsManager.getAdRequest(adId, config.placementId),
                     object : AdLoadCallback<InterstitialAd> {
                         override fun onAdLoaded(ad: InterstitialAd) {
+                            AdHealthEvents.loadFinished(AdType.INTERSTITIAL, adId, startedAt, null)
                             logZ("onAdLoaded: $adId")
                             ad.setImmersiveMode(true)
 
@@ -364,6 +367,7 @@ open class InterstitialAdHelper(
                         }
 
                         override fun onAdFailedToLoad(adError: LoadAdError) {
+                            AdHealthEvents.loadFinished(AdType.INTERSTITIAL, adId, startedAt, adError)
                             logZ("onAdFailedToLoad: ${adError.message}")
                             if (continuation.isActive) {
                                 continuation.resume(null)
@@ -472,6 +476,7 @@ open class InterstitialAdHelper(
             }
 
             override fun onAdFailedToShowFullScreenContent(fullScreenContentError: FullScreenContentError) {
+                AdHealthEvents.showFailed(AdType.INTERSTITIAL, adUnitId.orEmpty(), fullScreenContentError.message)
                 scope.launch {
                     logZ("onAdFailedToShowFullScreenContent: ${fullScreenContentError.message}")
                     waitingDialog.dismissSafely()

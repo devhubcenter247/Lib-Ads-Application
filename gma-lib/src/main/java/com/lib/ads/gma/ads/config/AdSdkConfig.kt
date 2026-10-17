@@ -64,6 +64,29 @@ class AdSdkConfig(
      * consent is resolved or changes. Does nothing outside the EEA flow (no TCF data stored).
      */
     var propagateConsent: Boolean = true
+
+    /**
+     * Logs `event_current_total_revenue_ad` (lifetime ad revenue) after every paid impression —
+     * the legacy behaviour, kept on by default so existing dashboards do not break. It is the
+     * noisiest event the SDK sends; turn it off once no report reads it.
+     */
+    var logTotalRevenueEachImpression: Boolean = true
+
+    /**
+     * Opt-in ad health events to Firebase (and AppsFlyer when listed in its events):
+     * `ad_load_time` per request, `ad_load_failed`, `ad_show_failed`. Useful to tune waterfall
+     * timeouts and watch fill rate; adds roughly one event per ad request.
+     */
+    var logAdHealthEvents: Boolean = false
+
+    /**
+     * Opt-in Firebase `purchase` for IAP revenue. Leave off when Firebase is linked to Google Play:
+     * GA4 already records `in_app_purchase` automatically and both would be summed as revenue.
+     */
+    var logFirebasePurchase: Boolean = false
+
+    /** Opt-in `Daily_Ads_Revenue` milestone (Azura "Taichi" tROAS event). Null = off. */
+    var dailyAdsRevenue: DailyAdsRevenueConfig? = null
     var adjustConfig: AdjustConfig? = null
     var appsflyerConfig: AppsflyerConfig? = null
     var adapterInitializationConfig: AdapterInitializationConfig? = null

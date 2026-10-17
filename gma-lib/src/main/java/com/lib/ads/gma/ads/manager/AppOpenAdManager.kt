@@ -14,6 +14,7 @@ import com.lib.ads.gma.ads.billing.AppPurchase
 import com.lib.ads.gma.ads.helper.fullscreen.LoadingDialogSlot
 import com.lib.ads.gma.ads.engine.AdsProvider
 import com.lib.ads.gma.ads.engine.whenAdsReady
+import com.lib.ads.gma.ads.event.AdHealthEvents
 import com.lib.ads.gma.ads.event.AdsLogEventManager
 import com.lib.ads.gma.ads.helper.canRequestFullScreenAds
 import com.lib.ads.gma.ads.helper.fullscreen.dismissSafely
@@ -120,10 +121,17 @@ object AppOpenAdManager {
             fun load(index: Int) {
                 if (!isCurrent()) return
                 if (index >= ids.size) { finish { listener.onNextAction() }; return }
+                val startedAt = AdHealthEvents.now()
                 AppOpenAd.load(AdsManager.getAdRequest(ids[index], placementId, skipUninitializedAdapters), object : AdLoadCallback<AppOpenAd> {
                     // Background-thread SDK callbacks; everything above is main-thread state.
-                    override fun onAdLoaded(ad: AppOpenAd) = AdsProvider.runOnMain { onAdReady(ad) }
-                    override fun onAdFailedToLoad(adError: LoadAdError) = AdsProvider.runOnMain { load(index + 1) }
+                    override fun onAdLoaded(ad: AppOpenAd) {
+                        AdHealthEvents.loadFinished(AdType.APP_OPEN, ids[index], startedAt, null)
+                        AdsProvider.runOnMain { onAdReady(ad) }
+                    }
+                    override fun onAdFailedToLoad(adError: LoadAdError) {
+                        AdHealthEvents.loadFinished(AdType.APP_OPEN, ids[index], startedAt, adError)
+                        AdsProvider.runOnMain { load(index + 1) }
+                    }
                 })
             }
             load(0)
@@ -175,6 +183,7 @@ object AppOpenAdManager {
             }
 
             override fun onAdFailedToShowFullScreenContent(fullScreenContentError: FullScreenContentError) {
+                AdHealthEvents.showFailed(AdType.APP_OPEN, adUnitId, fullScreenContentError.message)
                 scope.launch {
                     AppLogger.w(
                         TAG,

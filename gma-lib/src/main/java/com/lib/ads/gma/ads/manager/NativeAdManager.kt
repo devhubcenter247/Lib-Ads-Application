@@ -24,6 +24,7 @@ import com.google.android.libraries.ads.mobile.sdk.nativead.NativeAdView
 import com.lib.ads.gma.ads.billing.AppPurchase
 import com.lib.ads.gma.ads.engine.AdsProvider
 import com.lib.ads.gma.ads.engine.whenAdsReady
+import com.lib.ads.gma.ads.event.AdHealthEvents
 import com.lib.ads.gma.ads.event.AdsLogEventManager
 import com.lib.ads.gma.ads.helper.adnative.NativeAdRequestOptions
 import com.lib.ads.gma.ads.helper.adnative.toNativeAdRequest
@@ -156,13 +157,16 @@ object NativeAdManager {
         val request = options.toNativeAdRequest(id)
         // The Next-Gen SDK calls load callbacks on a background thread. Callers populate views and
         // run waterfall timers on main, so the result is delivered there.
+        val startedAt = AdHealthEvents.now()
         val loaderCallback = object : NativeAdLoaderCallback {
-            override fun onNativeAdLoaded(nativeAd: NativeAd) = runOnMain {
-                callback.onLoaded(ApNativeAd(layoutCustomNative, nativeAd))
+            override fun onNativeAdLoaded(nativeAd: NativeAd) {
+                AdHealthEvents.loadFinished(AdType.NATIVE, id, startedAt, null)
+                runOnMain { callback.onLoaded(ApNativeAd(layoutCustomNative, nativeAd)) }
             }
 
-            override fun onAdFailedToLoad(adError: LoadAdError) = runOnMain {
-                callback.onFailed(ApAdError(adError))
+            override fun onAdFailedToLoad(adError: LoadAdError) {
+                AdHealthEvents.loadFinished(AdType.NATIVE, id, startedAt, adError)
+                runOnMain { callback.onFailed(ApAdError(adError)) }
             }
         }
         if (maxNumberOfAds != null) {

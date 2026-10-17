@@ -15,6 +15,7 @@ import com.lib.ads.gma.ads.billing.AppPurchase
 import com.lib.ads.gma.ads.helper.fullscreen.LoadingDialogSlot
 import com.lib.ads.gma.ads.engine.AdsProvider
 import com.lib.ads.gma.ads.engine.whenAdsReady
+import com.lib.ads.gma.ads.event.AdHealthEvents
 import com.lib.ads.gma.ads.event.AdsLogEventManager
 import com.lib.ads.gma.ads.helper.canRequestFullScreenAds
 import com.lib.ads.gma.ads.helper.fullscreen.dismissSafely
@@ -61,13 +62,16 @@ object InterstitialAdManager {
         }
         // The Next-Gen SDK calls load callbacks on a background thread; listeners (and the splash
         // flow's timer state below) are main-thread only.
+        val startedAt = AdHealthEvents.now()
         InterstitialAd.load(AdsManager.getAdRequest(id, placementId), object : AdLoadCallback<InterstitialAd> {
-            override fun onAdLoaded(ad: InterstitialAd) = AdsProvider.runOnMain {
-                listener.onLoaded(ApInterstitialAd(ad))
+            override fun onAdLoaded(ad: InterstitialAd) {
+                AdHealthEvents.loadFinished(AdType.INTERSTITIAL, id, startedAt, null)
+                AdsProvider.runOnMain { listener.onLoaded(ApInterstitialAd(ad)) }
             }
 
-            override fun onAdFailedToLoad(adError: LoadAdError) = AdsProvider.runOnMain {
-                listener.onFailed(ApAdError(adError))
+            override fun onAdFailedToLoad(adError: LoadAdError) {
+                AdHealthEvents.loadFinished(AdType.INTERSTITIAL, id, startedAt, adError)
+                AdsProvider.runOnMain { listener.onFailed(ApAdError(adError)) }
             }
         })
     }
@@ -171,6 +175,7 @@ object InterstitialAdManager {
                         TAG,
                         "onAdFailedToShowFullScreenContent: ${fullScreenContentError.message}"
                     )
+                    AdHealthEvents.showFailed(AdType.INTERSTITIAL, adUnitId, fullScreenContentError.message)
                     waitingDialog.dismissSafely()
                     AdsProvider.getInstance().setFullScreenAdShowing(false)
                     dismissLoadingDialog()

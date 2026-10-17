@@ -9,6 +9,7 @@ import com.lib.ads.gma.gma.R
 import com.lib.ads.gma.ads.billing.AppPurchase
 import com.lib.ads.gma.ads.engine.AdsProvider
 import com.lib.ads.gma.ads.engine.whenAdsReady
+import com.lib.ads.gma.ads.event.AdHealthEvents
 import com.lib.ads.gma.ads.event.AdsLogEventManager
 import com.lib.ads.gma.ads.helper.extension.adUnitIdOrEmpty
 import com.lib.ads.gma.ads.helper.fullscreen.dismissSafely
@@ -60,13 +61,16 @@ object RewardAdManager {
             listener.onFailed(ApAdError("App is purchased")); return
         }
         // The Next-Gen SDK calls load callbacks on a background thread; listeners get main.
+        val startedAt = AdHealthEvents.now()
         RewardedAd.load(AdsManager.getAdRequest(id, placementId), object : AdLoadCallback<RewardedAd> {
-            override fun onAdLoaded(ad: RewardedAd) = runOnMain {
-                listener.onLoaded(ApRewardAd(ad))
+            override fun onAdLoaded(ad: RewardedAd) {
+                AdHealthEvents.loadFinished(AdType.REWARDED, id, startedAt, null)
+                runOnMain { listener.onLoaded(ApRewardAd(ad)) }
             }
 
-            override fun onAdFailedToLoad(adError: LoadAdError) = runOnMain {
-                listener.onFailed(ApAdError(adError))
+            override fun onAdFailedToLoad(adError: LoadAdError) {
+                AdHealthEvents.loadFinished(AdType.REWARDED, id, startedAt, adError)
+                runOnMain { listener.onFailed(ApAdError(adError)) }
             }
         })
     }
@@ -84,16 +88,19 @@ object RewardAdManager {
         if (AppPurchase.getInstance().isPurchased()) {
             listener.onFailed(ApAdError("App is purchased")); return
         }
+        val startedAt = AdHealthEvents.now()
         RewardedInterstitialAd.load(AdsManager.getAdRequest(id, placementId), object : AdLoadCallback<RewardedInterstitialAd> {
             override fun onAdLoaded(ad: RewardedInterstitialAd) {
+                AdHealthEvents.loadFinished(AdType.REWARDED_INTERSTITIAL, id, startedAt, null)
                 ssvCustomData?.takeIf { it.isNotEmpty() }?.let {
                     ad.setServerSideVerificationOptions(ServerSideVerificationOptions("", it))
                 }
                 runOnMain { listener.onLoaded(ApRewardAd(ad)) }
             }
 
-            override fun onAdFailedToLoad(adError: LoadAdError) = runOnMain {
-                listener.onFailed(ApAdError(adError))
+            override fun onAdFailedToLoad(adError: LoadAdError) {
+                AdHealthEvents.loadFinished(AdType.REWARDED_INTERSTITIAL, id, startedAt, adError)
+                runOnMain { listener.onFailed(ApAdError(adError)) }
             }
         })
     }
@@ -273,6 +280,7 @@ object RewardAdManager {
         // SDK callbacks arrive on a background thread; every listener call is marshalled to main in
         // arrival order, so the reward flag is already set when the dismiss post runs.
         val earnedReward = AtomicBoolean(false)
+        val rewardType = if (apAd.isRewardInterstitial()) AdType.REWARDED_INTERSTITIAL else AdType.REWARDED
         if (apAd.isRewardInterstitial()) {
             val ad = apAd.rewardInterstitial!!
             val adUnitId = ad.adUnitIdOrEmpty()
@@ -285,6 +293,7 @@ object RewardAdManager {
                 }
 
                 override fun onAdFailedToShowFullScreenContent(fullScreenContentError: FullScreenContentError) = runOnMain {
+                    AdHealthEvents.showFailed(rewardType, adUnitId, fullScreenContentError.message)
                     waitingDialog.dismissSafely()
                     AdsProvider.getInstance().setFullScreenAdShowing(false)
                     listener.onFailedToShow(ApAdError(fullScreenContentError.message))
@@ -330,6 +339,7 @@ object RewardAdManager {
                 }
 
                 override fun onAdFailedToShowFullScreenContent(fullScreenContentError: FullScreenContentError) = runOnMain {
+                    AdHealthEvents.showFailed(rewardType, adUnitId, fullScreenContentError.message)
                     waitingDialog.dismissSafely()
                     AdsProvider.getInstance().setFullScreenAdShowing(false)
                     listener.onFailedToShow(ApAdError(fullScreenContentError.message))

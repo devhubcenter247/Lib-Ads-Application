@@ -10,7 +10,12 @@ enum class AdsTrackEvent(val eventName: String? = null) {
     PAID_AD_IMPRESSION_VALUE_001("paid_ad_impression_value_001"),
     CURRENT_TOTAL_REVENUE("event_current_total_revenue_ad"),
     TOTAL_REVENUE_3_DAYS("event_total_revenue_ad_in_3_days"),
-    TOTAL_REVENUE_7_DAYS("event_total_revenue_ad_in_7_days");
+    TOTAL_REVENUE_7_DAYS("event_total_revenue_ad_in_7_days"),
+
+    /** Ad health events — only produced when AdSdkConfig.logAdHealthEvents is on. */
+    AD_LOAD_TIME("ad_load_time"),
+    AD_LOAD_FAILED("ad_load_failed"),
+    AD_SHOW_FAILED("ad_show_failed");
 
     companion object {
         private val byName: Map<String, AdsTrackEvent> =
