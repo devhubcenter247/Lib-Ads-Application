@@ -15,22 +15,30 @@ An Android ad management library providing unified integration for AdMob ads, in
 
 | Module | Description |
 |--------|-------------|
-| `adlib` | Core ad library with all integrations |
-| `app` | Sample application demonstrating usage |
+| `gma-lib` | **Current library** on the Google Mobile Ads Next-Gen SDK (`com.lib:gmasdk`). Used by the sample app. |
+| `adlib` | Legacy library on `play-services-ads`, kept for existing consumers. No new features. |
+| `app` | Sample application (flavors `appDev` / `appProd`) built on `gma-lib` |
+
+`gma-lib` and `adlib` share package names with incompatible types — use one, never both.
+
+**gma-lib docs:** [Document/gma-lib.md](Document/gma-lib.md) and
+[Document/tracking-iap-integration.md](Document/tracking-iap-integration.md) (tracking, IAP,
+consent, upgrade checklist).
 
 ---
 
 ## Requirements
 
-- Android SDK 24+ (minSdk)
-- Android SDK 36 (compileSdk / targetSdk)
-- JDK 11
-- Gradle 8.13+
-- Kotlin 2.1.0
+- minSdk 26, compileSdk / targetSdk 37
+- JDK 17
+- AGP 9.1.1, Kotlin 2.3.21
+- SDK versions: `gradle/libs.versions.toml`
 
 ---
 
-## Integration
+## Integration (legacy `adlib`)
+
+> The steps below describe the legacy `adlib` module. For `gma-lib`, see the documents linked above.
 
 ### 1. Add the library module
 
