@@ -108,7 +108,10 @@ class SplashActivity : BaseActivity() {
         lifecycleScope.launch(Dispatchers.Main) {
             val canRequest = requestUmp()
             if (canRequest) {
-                Log.d("SplashRequest", "Waiting for GMA SDK initialized in Application.onCreate")
+                // GmaApplication is consent-first: start GMA now that consent allows it. No-op when
+                // it already started in Application.onCreate from stored consent.
+                AdsProvider.getInstance().initializeIfNeeded()
+                Log.d("SplashRequest", "Waiting for GMA SDK initialization")
                 AdsProvider.getInstance().awaitReady { isSuccess ->
                     if (isSuccess) {
                         Log.d("SplashRequest", "GMA SDK ready; starting native splash request")

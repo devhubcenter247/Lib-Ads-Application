@@ -45,15 +45,8 @@
         <meta-data
             android:name="com.facebook.sdk.ClientToken"
             android:value="@string/facebook_client_token" />
-        <!-- Adjust Receiver -->
-        <receiver
-            android:name="com.adjust.sdk.AdjustReferrerReceiver"
-            android:exported="true"
-            android:permission="android.permission.INSTALL_PACKAGES" >
-            <intent-filter>
-                <action android:name="com.android.vending.INSTALL_REFERRER" />
-            </intent-filter>
-        </receiver>
+        <!-- Install referrer comes from the Play Install Referrer API (installreferrer, pulled in
+             by gma-lib); the INSTALL_REFERRER broadcast receiver is obsolete. -->
         <!-- GMA application flow -->
         <activity
             android:name=".app.gma.splash.SplashActivity"

@@ -47,6 +47,11 @@ android {
             buildConfigField("String", "ad_inter_priority", "\"/21775744923/example/interstitial\"")
             buildConfigField("String", "ad_inter_normal", "\"/21775744923/example/interstitial\"")
             buildConfigField("String", "ad_fb_native_banner", "\"/21775744923/example/native\"")
+            // Attribution keys: empty = SDK not started. Fill per flavor (never commit real keys
+            // to a public repo; prefer gradle.properties / CI secrets).
+            buildConfigField("String", "adjust_token", "\"\"")
+            buildConfigField("String", "adjust_event_purchase", "\"\"")
+            buildConfigField("String", "af_dev_key", "\"\"")
             buildConfigField("Boolean", "env_dev", "true")
         }
         create("appProd") {
@@ -66,6 +71,11 @@ android {
             buildConfigField("String", "ad_inter_priority", "\"/21775744923/example/interstitial\"")
             buildConfigField("String", "ad_inter_normal", "\"/21775744923/example/interstitial\"")
             buildConfigField("String", "ad_fb_native_banner", "\"/21775744923/example/native\"")
+            // Attribution keys: empty = SDK not started. Fill per flavor (never commit real keys
+            // to a public repo; prefer gradle.properties / CI secrets).
+            buildConfigField("String", "adjust_token", "\"\"")
+            buildConfigField("String", "adjust_event_purchase", "\"\"")
+            buildConfigField("String", "af_dev_key", "\"\"")
             buildConfigField("Boolean", "env_dev", "false")
         }
     }
