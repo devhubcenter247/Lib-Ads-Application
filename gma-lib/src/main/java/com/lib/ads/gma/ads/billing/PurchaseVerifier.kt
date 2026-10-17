@@ -29,6 +29,9 @@ internal class PurchaseVerifier {
     fun getOwnerIdInApp(): List<PurchaseResult> = store.getOwnerIdInApp()
     fun getSubscriptionPurchaseToken(subsId: String): String? = store.getSubscriptionPurchaseToken(subsId)
 
+    /** Called with the entitlements Play just confirmed (successful refresh only) — the value to persist. */
+    var onEntitlementsVerified: ((Set<Entitlement>) -> Unit)? = null
+
     /**
      * A PURCHASED but not yet acknowledged purchase seen during a refresh: it finished while the
      * app was dead (pending payment completed, acknowledge/consume failed) and may never have gone
@@ -127,7 +130,15 @@ internal class PurchaseVerifier {
                 }
             },
             onBothComplete = { code ->
-                store.replaceFromOwners(getEntitlements)
+                if (code == BillingClient.BillingResponseCode.OK) {
+                    store.replaceFromOwners(getEntitlements)
+                    onEntitlementsVerified?.invoke(store.ownedEntitlements)
+                } else {
+                    // A failed query (offline, Play Store unavailable) proves nothing: rebuilding
+                    // from the empty owner lists would revoke a paying user's entitlements and
+                    // show them ads. Keep the current (cached or granted) state.
+                    AppLogger.w(TAG, "refresh: query failed code=$code, keeping entitlements=${store.ownedEntitlements}")
+                }
                 onComplete(code)
             },
         )

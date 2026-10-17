@@ -5,6 +5,7 @@ import android.app.Application
 import com.lib.ads.gma.ads.engine.AdsProvider
 import com.lib.ads.gma.ads.util.AppUtil
 import com.lib.ads.gma.ads.util.AppLogger
+import com.lib.ads.gma.ads.util.SharePreferenceUtils
 import com.android.billingclient.api.BillingClient
 import com.android.billingclient.api.BillingResult
 import com.android.billingclient.api.ProductDetails
@@ -191,7 +192,14 @@ class AppPurchase private constructor() {
         }
         configuredPurchaseItems = purchaseItemList.toList()
         val repo = ProductDetailsRepository()
-        val vfy = PurchaseVerifier()
+        val vfy = PurchaseVerifier().apply {
+            // Start from what Play confirmed last time, so a premium user sees no ad (splash
+            // included) while billing connects, and keeps premium when the query fails offline.
+            grantEntitlements(cachedEntitlements(application))
+            onEntitlementsVerified = { owned ->
+                SharePreferenceUtils.setVerifiedEntitlementNames(application, owned.mapTo(mutableSetOf()) { it.name })
+            }
+        }
         val connMgr = BillingConnectionManager()
         repository = repo
         verifier = vfy
@@ -335,8 +343,12 @@ class AppPurchase private constructor() {
 
     fun getInitBillingFinish(): Boolean = connectionManager?.isInitBillingFinish ?: false
 
-    /** True iff the user owns the [Entitlement.REMOVE_ADS] entitlement. Every ad-gating check in the SDK reads this. */
-    fun isPurchased(): Boolean = verifier?.isPurchased ?: false
+    /**
+     * True iff the user owns the [Entitlement.REMOVE_ADS] entitlement. Every ad-gating check in the
+     * SDK reads this. Before [initBilling] it answers from the last Play-verified state.
+     */
+    fun isPurchased(): Boolean =
+        verifier?.isPurchased ?: (Entitlement.REMOVE_ADS in cachedEntitlementsBeforeInit())
 
     fun setPurchase(purchase: Boolean) {
         verifier?.isPurchased = purchase
@@ -344,9 +356,17 @@ class AppPurchase private constructor() {
 
     /** True iff the user owns [entitlement] — e.g. [Entitlement.PREMIUM_FEATURES] to gate paid app features independently of ad suppression. */
     fun hasEntitlement(entitlement: Entitlement): Boolean =
-        verifier?.hasEntitlement(entitlement) ?: false
+        verifier?.hasEntitlement(entitlement) ?: (entitlement in cachedEntitlementsBeforeInit())
 
-    fun getOwnedEntitlements(): Set<Entitlement> = verifier?.ownedEntitlements() ?: emptySet()
+    fun getOwnedEntitlements(): Set<Entitlement> = verifier?.ownedEntitlements() ?: cachedEntitlementsBeforeInit()
+
+    private fun cachedEntitlements(context: android.content.Context): Set<Entitlement> {
+        val names = SharePreferenceUtils.getVerifiedEntitlementNames(context) ?: return emptySet()
+        return Entitlement.entries.filterTo(mutableSetOf()) { it.name in names }
+    }
+
+    private fun cachedEntitlementsBeforeInit(): Set<Entitlement> =
+        AdsProvider.getInstance().applicationContextOrNull()?.let(::cachedEntitlements).orEmpty()
 
     fun ownedEntitlementsFlow(): StateFlow<Set<Entitlement>>? = verifier?.ownedEntitlementsFlow()
 

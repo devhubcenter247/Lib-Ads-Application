@@ -59,13 +59,13 @@ object RewardAdManager {
         if (AppPurchase.getInstance().isPurchased()) {
             listener.onFailed(ApAdError("App is purchased")); return
         }
+        // The Next-Gen SDK calls load callbacks on a background thread; listeners get main.
         RewardedAd.load(AdsManager.getAdRequest(id, placementId), object : AdLoadCallback<RewardedAd> {
-            override fun onAdLoaded(ad: RewardedAd) {
+            override fun onAdLoaded(ad: RewardedAd) = runOnMain {
                 listener.onLoaded(ApRewardAd(ad))
             }
 
-            override fun onAdFailedToLoad(adError: LoadAdError) {
-                super.onAdFailedToLoad(adError)
+            override fun onAdFailedToLoad(adError: LoadAdError) = runOnMain {
                 listener.onFailed(ApAdError(adError))
             }
         })
@@ -89,10 +89,10 @@ object RewardAdManager {
                 ssvCustomData?.takeIf { it.isNotEmpty() }?.let {
                     ad.setServerSideVerificationOptions(ServerSideVerificationOptions("", it))
                 }
-                listener.onLoaded(ApRewardAd(ad))
+                runOnMain { listener.onLoaded(ApRewardAd(ad)) }
             }
 
-            override fun onAdFailedToLoad(adError: LoadAdError) {
+            override fun onAdFailedToLoad(adError: LoadAdError) = runOnMain {
                 listener.onFailed(ApAdError(adError))
             }
         })

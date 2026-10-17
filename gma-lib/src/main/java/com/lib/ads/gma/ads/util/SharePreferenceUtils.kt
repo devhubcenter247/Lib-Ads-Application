@@ -20,6 +20,7 @@ object SharePreferenceUtils {
     private const val KEY_DAILY_ADS_DAY2_IMPRESSIONS = "KEY_DAILY_ADS_DAY2_IMPRESSIONS"
     private const val KEY_TRACKED_PURCHASE_TOKENS = "KEY_TRACKED_PURCHASE_TOKENS"
     private const val KEY_CONSENT_SIGNATURE = "KEY_CONSENT_SIGNATURE"
+    private const val KEY_VERIFIED_ENTITLEMENTS = "KEY_VERIFIED_ENTITLEMENTS"
     private const val MAX_TRACKED_PURCHASE_TOKENS = 100
 
     private fun getPrefs(context: Context) = context.applicationContext.getSharedPreferences(PREF_NAME, 0)
@@ -134,6 +135,15 @@ object SharePreferenceUtils {
         prefs.edit { putString(KEY_TRACKED_PURCHASE_TOKENS, updated.joinToString("\n")) }
         return true
     }
+
+    /** Entitlement names Play last confirmed; null when billing never completed a successful refresh. */
+    @JvmStatic
+    internal fun getVerifiedEntitlementNames(context: Context): Set<String>? =
+        getPrefs(context).getStringSet(KEY_VERIFIED_ENTITLEMENTS, null)?.toSet()
+
+    @JvmStatic
+    internal fun setVerifiedEntitlementNames(context: Context, names: Set<String>) =
+        getPrefs(context).edit { putStringSet(KEY_VERIFIED_ENTITLEMENTS, names.toSet()) }
 
     @JvmStatic
     internal fun getConsentSignature(context: Context): String? =

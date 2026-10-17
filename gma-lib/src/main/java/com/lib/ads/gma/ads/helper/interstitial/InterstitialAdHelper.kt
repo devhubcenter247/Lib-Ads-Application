@@ -178,7 +178,6 @@ open class InterstitialAdHelper(
 
     private var interstitialAdLocal: InterstitialAd? = null
     private var loadedAdUnitId: String? = null
-    private var lastImpressionTime: Long = 0
     private val listAdCallback: CopyOnWriteArrayList<InterstitialAdListener> = CopyOnWriteArrayList()
     private val loadWaiters = CopyOnWriteArrayList<(Boolean) -> Unit>()
     private var loadingJob: Job? = null
@@ -428,9 +427,7 @@ open class InterstitialAdHelper(
             return
         }
 
-        val intervalMs = config.intervalBetweenAds * 1000L
-        val timeSinceLastImpression = System.currentTimeMillis() - lastImpressionTime
-        if (intervalMs > 0 && timeSinceLastImpression < intervalMs) {
+        if (InterstitialFrequencyCap.isCoolingDown(config.intervalBetweenAds * 1000L)) {
             logZ("showAd: Skipping due to interval restriction")
             waitingDialog.dismissSafely()
             AdsProvider.getInstance().setFullScreenAdShowing(false)
@@ -445,14 +442,14 @@ open class InterstitialAdHelper(
 
         interstitialAd.adEventCallback = object : InterstitialAdEventCallback {
             override fun onAdShowedFullScreenContent() {
-               // scope.launch() {
+                InterstitialFrequencyCap.markShown()
+                // SDK background thread: dialog fields are main-thread state.
+                AdsProvider.runOnMain {
                     logZ("onAdShowedFullScreenContent")
                     AdsProvider.getInstance().setFullScreenAdShowing(true)
-                    lastImpressionTime = System.currentTimeMillis()
-                   // delay(AD_TRANSITION_COVER_DELAY.milliseconds)
                     waitingDialog.dismissSafely()
                     dismissLoadingDialog()
-               // }
+                }
             }
 
             override fun onAdDismissedFullScreenContent() {

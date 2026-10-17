@@ -33,6 +33,37 @@ internal fun Dialog?.dismissSafely() {
     runCatching { this?.takeIf { it.isShowing }?.dismiss() }
 }
 
+/**
+ * The single loading dialog a singleton manager shows over a full-screen ad. It is dismissed and
+ * released when its Activity is destroyed, so the manager never pins a dead Activity (and its
+ * window) between two shows. Main thread only.
+ */
+internal class LoadingDialogSlot {
+    private var dialog: Dialog? = null
+    private var boundLifecycle: Lifecycle? = null
+    private val releaseOnDestroy = object : DefaultLifecycleObserver {
+        override fun onDestroy(owner: LifecycleOwner) = dismiss()
+    }
+
+    val current: Dialog? get() = dialog
+
+    fun show(activity: Activity) {
+        dismiss()
+        val shown = showWaitingAdDialog(activity) ?: return
+        dialog = shown
+        boundLifecycle = (activity as? LifecycleOwner)?.lifecycle?.also { it.addObserver(releaseOnDestroy) }
+    }
+
+    /** Always forgets the dialog, even when dismissing it throws (window already gone). */
+    fun dismiss() {
+        val shown = dialog
+        dialog = null
+        boundLifecycle?.removeObserver(releaseOnDestroy)
+        boundLifecycle = null
+        shown.dismissSafely()
+    }
+}
+
 /** Runs exactly one branch, immediately or on the next foreground transition. */
 internal fun runWhenAppForeground(
     deferToForeground: Boolean,

@@ -21,36 +21,43 @@ import com.lib.ads.gma.ads.helper.banner.params.BannerSize
 import com.lib.ads.gma.ads.model.AdType
 import com.lib.ads.gma.ads.model.wrapper.*
 import com.lib.ads.gma.ads.util.AppLogger
+import com.lib.ads.gma.ads.util.runOnMain
 import kotlinx.coroutines.flow.StateFlow
 
 /** Owns banner ad loading; buffering per placement lives in [com.lib.ads.gma.ads.helper.banner.BannerAds]. */
 object BannerAdManager {
     private const val TAG = "BannerAdManager"
 
-    /** Wires click/impression/paid-event analytics for a loaded [BannerAd], scoped to [context]. */
+    /**
+     * Wires click/impression/paid-event analytics for a loaded [BannerAd]. The SDK calls these on a
+     * background thread: analytics stays there, every [callback] call is delivered on the main
+     * thread in arrival order, so UI code in a listener is safe.
+     */
     internal fun bindBannerAdListener(context: Context, ad: BannerAd, callback: BannerAdListener = object : BannerAdListener {}) {
+        val appContext = context.applicationContext
         val adUnitId = ad.adUnitIdOrEmpty()
         ad.adEventCallback = object : BannerAdEventCallback {
             override fun onAdClicked() {
-                AdsLogEventManager.logClickAdsEvent(context, adUnitId)
-                callback.onClicked(null)
+                AdsLogEventManager.logClickAdsEvent(appContext, adUnitId)
+                runOnMain { callback.onClicked(null) }
             }
             override fun onAdImpression() {
-                AdsLogEventManager.onTrackImpression(context)
-                callback.onImpression(null)
+                AdsLogEventManager.onTrackImpression(appContext)
+                runOnMain { callback.onImpression(null) }
             }
             override fun onAdPaid(value: AdValue) {
-                AdsLogEventManager.logPaidAdImpression(context, value, ad, AdType.BANNER)
-                callback.onPaid(value)
+                AdsLogEventManager.logPaidAdImpression(appContext, value, ad, AdType.BANNER)
+                runOnMain { callback.onPaid(value) }
             }
-            override fun onAppEvent(name: String, data: String?) = callback.onAppEvent(name, data)
-            override fun onAdShowedFullScreenContent() = callback.onShownFullScreenContent()
-            override fun onAdDismissedFullScreenContent() = callback.onDismissedFullScreenContent()
-            override fun onAdFailedToShowFullScreenContent(fullScreenContentError: com.google.android.libraries.ads.mobile.sdk.common.FullScreenContentError) = callback.onFailedToShowFullScreenContent(ApAdError(fullScreenContentError))
+            override fun onAppEvent(name: String, data: String?) = runOnMain { callback.onAppEvent(name, data) }
+            override fun onAdShowedFullScreenContent() = runOnMain { callback.onShownFullScreenContent() }
+            override fun onAdDismissedFullScreenContent() = runOnMain { callback.onDismissedFullScreenContent() }
+            override fun onAdFailedToShowFullScreenContent(fullScreenContentError: com.google.android.libraries.ads.mobile.sdk.common.FullScreenContentError) =
+                runOnMain { callback.onFailedToShowFullScreenContent(ApAdError(fullScreenContentError)) }
         }
         ad.bannerAdRefreshCallback = object : com.google.android.libraries.ads.mobile.sdk.banner.BannerAdRefreshCallback {
-            override fun onAdRefreshed() = callback.onRefreshed()
-            override fun onAdFailedToRefresh(adError: LoadAdError) = callback.onFailedToRefresh(ApAdError(adError))
+            override fun onAdRefreshed() = runOnMain { callback.onRefreshed() }
+            override fun onAdFailedToRefresh(adError: LoadAdError) = runOnMain { callback.onFailedToRefresh(ApAdError(adError)) }
         }
     }
 
@@ -208,14 +215,16 @@ object BannerAdManager {
         adView.setLayerType(View.LAYER_TYPE_HARDWARE, null as Paint?)
         val adSize = getAdSize(appContext, useInlineAdaptive, maxHeight, widthDp, heightConfig, customWidthDp, customHeightDp)
         val request = getAdRequestForCollapsibleBanner(id, adSize, collapsibleGravity, placementId)
+        // The Next-Gen SDK calls load callbacks on a background thread; the AdView is a View, so
+        // destroying it and handing it to the caller (who attaches it) must happen on main.
         adView.loadAd(request, object : AdLoadCallback<BannerAd> {
-            override fun onAdLoaded(ad: BannerAd) {
+            override fun onAdLoaded(ad: BannerAd) = runOnMain {
                 onLoadedAd?.invoke(ad)
                 bindBannerAdListener(appContext, ad, callback)
                 callback.onLoaded(adView)
             }
 
-            override fun onAdFailedToLoad(adError: LoadAdError) {
+            override fun onAdFailedToLoad(adError: LoadAdError) = runOnMain {
                 adView.destroy()
                 callback.onFailed(ApAdError(adError))
             }

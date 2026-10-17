@@ -12,7 +12,7 @@ import com.google.android.libraries.ads.mobile.sdk.common.LoadAdError
 import com.google.android.libraries.ads.mobile.sdk.interstitial.InterstitialAd
 import com.google.android.libraries.ads.mobile.sdk.interstitial.InterstitialAdEventCallback
 import com.lib.ads.gma.ads.billing.AppPurchase
-import com.lib.ads.gma.ads.dialog.PrepareLoadingAdsDialog
+import com.lib.ads.gma.ads.helper.fullscreen.LoadingDialogSlot
 import com.lib.ads.gma.ads.engine.AdsProvider
 import com.lib.ads.gma.ads.engine.whenAdsReady
 import com.lib.ads.gma.ads.event.AdsLogEventManager
@@ -20,6 +20,7 @@ import com.lib.ads.gma.ads.helper.canRequestFullScreenAds
 import com.lib.ads.gma.ads.helper.fullscreen.dismissSafely
 import com.lib.ads.gma.ads.helper.fullscreen.isAppInForeground
 import com.lib.ads.gma.ads.helper.interstitial.InterstitialAdHelper.Companion.AD_TRANSITION_COVER_DELAY
+import com.lib.ads.gma.ads.helper.interstitial.InterstitialFrequencyCap
 import com.lib.ads.gma.ads.model.AdType
 import com.lib.ads.gma.ads.model.wrapper.*
 import com.lib.ads.gma.ads.util.AppLogger
@@ -45,8 +46,8 @@ object InterstitialAdManager {
     private var isTimeDelay: Boolean = false
     private var interstitialSplash: InterstitialAd? = null
 
-    // Loading-dialog state shared by the splash and regular show flows.
-    private var loadingAdsDialog: PrepareLoadingAdsDialog? = null
+    // Loading-dialog state shared by the splash and regular show flows; released with its Activity.
+    private val loadingDialog = LoadingDialogSlot()
     private var isShowLoadingSplash: Boolean = false
 
     fun loadInterstitialAdRaw(id: String, listener: InterstitialAdListener, placementId: Long? = null) {
@@ -58,12 +59,14 @@ object InterstitialAdManager {
         if (AppPurchase.getInstance().isPurchased()) {
             listener.onFailed(ApAdError("App is purchased")); return
         }
+        // The Next-Gen SDK calls load callbacks on a background thread; listeners (and the splash
+        // flow's timer state below) are main-thread only.
         InterstitialAd.load(AdsManager.getAdRequest(id, placementId), object : AdLoadCallback<InterstitialAd> {
-            override fun onAdLoaded(ad: InterstitialAd) {
+            override fun onAdLoaded(ad: InterstitialAd) = AdsProvider.runOnMain {
                 listener.onLoaded(ApInterstitialAd(ad))
             }
 
-            override fun onAdFailedToLoad(adError: LoadAdError) {
+            override fun onAdFailedToLoad(adError: LoadAdError) = AdsProvider.runOnMain {
                 listener.onFailed(ApAdError(adError))
             }
         })
@@ -113,32 +116,15 @@ object InterstitialAdManager {
         } else {
             CoroutineScope(Dispatchers.Main.immediate).launch {
                 runCatching {
-                    showAd(activity, ad.interstitialAd!!, listener, loadingAdsDialog)
+                    showAd(activity, ad.interstitialAd!!, listener, loadingDialog.current)
                 }
             }
         }
     }
 
-    private fun showLoadingDialog(activity: Activity) {
-        try {
-            dismissLoadingDialog()
-            loadingAdsDialog = PrepareLoadingAdsDialog(activity).apply {
-                setCancelable(false)
-                show()
-            }
-        } catch (e: Exception) {
-            AppLogger.w(TAG, "Error showing loading dialog: ${e.message}")
-        }
-    }
+    private fun showLoadingDialog(activity: Activity) = loadingDialog.show(activity)
 
-    private fun dismissLoadingDialog() {
-        try {
-            loadingAdsDialog?.takeIf { it.isShowing }?.dismiss()
-            loadingAdsDialog = null
-        } catch (e: Exception) {
-            AppLogger.w(TAG, "Error dismissing loading dialog: ${e.message}")
-        }
-    }
+    private fun dismissLoadingDialog() = loadingDialog.dismiss()
 
     private suspend fun showAd(
         activity: Activity,
@@ -159,6 +145,7 @@ object InterstitialAdManager {
         if (waitingDialog == null) showLoadingDialog(activity)
         interstitialAd.adEventCallback = object : InterstitialAdEventCallback {
             override fun onAdShowedFullScreenContent() {
+                InterstitialFrequencyCap.markShown()
                 scope.launch {
                     AppLogger.w(TAG, "onAdShowedFullScreenContent")
                     AdsProvider.getInstance().setFullScreenAdShowing(true)
@@ -266,15 +253,8 @@ object InterstitialAdManager {
         waitingDialog: Dialog?,
         listener: InterstitialAdListener
     ) = CoroutineScope(Dispatchers.Main.immediate).launch {
-        if (waitingDialog == null) runCatching {
-            loadingAdsDialog?.dismiss(); loadingAdsDialog =
-            PrepareLoadingAdsDialog(activity); loadingAdsDialog?.setCancelable(
-            false
-        ); loadingAdsDialog?.show()
-        }.onFailure {
-            listener.onFailedToShow(ApAdError(it.message ?: "Unable to show loading dialog"))
-            return@onFailure
-        }
+        // showAd() puts up the loading dialog itself when no waitingDialog is given; creating one
+        // here too showed two dialogs in a row.
         if (activity.isFinishing || activity.isDestroyed) {
             dismissShowDialog(activity, waitingDialog)
             listener.onFailedToShow(ApAdError("Activity can no longer show an interstitial"))
@@ -314,30 +294,49 @@ object InterstitialAdManager {
         if (appContext == null || !canRequestFullScreenAds(appContext, true)) {
             listener.onNextAction(); return@whenAdsReady
         }
-        handlerTimeDelay = Handler(Looper.getMainLooper())
-        val delay =
-            Runnable { if (interstitialSplash != null) listener.onReady() else isTimeDelay = true }
-        rdTimeDelay = delay; handlerTimeDelay?.postDelayed(delay, timeDelay)
-        if (timeOut > 0) {
-            handlerTimeout = Handler(Looper.getMainLooper())
-            val timeout = Runnable {
-                isTimeout =
-                    true; if (interstitialSplash != null) listener.onReady() else listener.onNextAction()
-            }
-            rdTimeout = timeout; handlerTimeout?.postDelayed(timeout, timeOut)
-        }
+        startSplashTimers(timeOut, timeDelay, listener)
         loadInterstitialAdRaw(id, object : InterstitialAdListener {
-            override fun onLoaded(ad: ApInterstitialAd) {
-                interstitialSplash = ad.interstitialAd
-                FullScreenAdLruCache.put(SPLASH_TAG, ad)
-                clearSplashTimeout()
-                if (isTimeout || isTimeDelay) listener.onReady()
-            }
+            override fun onLoaded(ad: ApInterstitialAd) = onSplashLoaded(ad, listener)
 
             override fun onFailed(error: ApAdError) {
                 if (!isTimeout) listener.onFailed(error)
             }
         })
+    }
+
+    /**
+     * Timers shared by both splash entry points (main thread; load results are delivered there
+     * too). Once the timeout has continued the flow nothing else reaches the listener: neither a
+     * delay runnable firing after it (timeDelay > timeOut) nor a late fill.
+     */
+    private fun startSplashTimers(timeOut: Long, timeDelay: Long, listener: InterstitialAdListener) {
+        handlerTimeDelay = Handler(Looper.getMainLooper())
+        val delay = Runnable {
+            if (isTimeout) return@Runnable
+            if (interstitialSplash != null) listener.onReady() else isTimeDelay = true
+        }
+        rdTimeDelay = delay
+        handlerTimeDelay?.postDelayed(delay, timeDelay)
+        if (timeOut > 0) {
+            handlerTimeout = Handler(Looper.getMainLooper())
+            val timeout = Runnable {
+                isTimeout = true
+                rdTimeDelay?.let { handlerTimeDelay?.removeCallbacks(it) }
+                if (interstitialSplash != null) listener.onReady() else listener.onNextAction()
+            }
+            rdTimeout = timeout
+            handlerTimeout?.postDelayed(timeout, timeOut)
+        }
+    }
+
+    private fun onSplashLoaded(ad: ApInterstitialAd, listener: InterstitialAdListener) {
+        interstitialSplash = ad.interstitialAd
+        FullScreenAdLruCache.put(SPLASH_TAG, ad)
+        // Timed out already: the flow went on via onNextAction. Keep the ad cached (for
+        // onCheckShowSplashWhenFail) but do not report it as ready a second time.
+        if (isTimeout) return
+        clearSplashTimeout()
+        if (isTimeDelay) listener.onReady()
     }
 
     fun loadSplashListAds(
@@ -352,19 +351,7 @@ object InterstitialAdManager {
         if (appContext == null || !canRequestFullScreenAds(appContext, true)) {
             listener.onNextAction(); return@whenAdsReady
         }
-        handlerTimeDelay = Handler(Looper.getMainLooper())
-        val delay =
-            Runnable { if (interstitialSplash != null) listener.onReady() else isTimeDelay = true }
-        rdTimeDelay = delay
-        handlerTimeDelay?.postDelayed(delay, timeDelay)
-        if (timeOut > 0) {
-            handlerTimeout = Handler(Looper.getMainLooper())
-            val timeout = Runnable {
-                isTimeout =
-                    true; if (interstitialSplash != null) listener.onReady() else listener.onNextAction()
-            }
-            rdTimeout = timeout; handlerTimeout?.postDelayed(timeout, timeOut)
-        }
+        startSplashTimers(timeOut, timeDelay, listener)
         loadNextAdSplashList(listId, 0, listener)
     }
 
@@ -374,15 +361,12 @@ object InterstitialAdManager {
         listener: InterstitialAdListener
     ) {
         if (index >= ids.size) {
-            listener.onFailed(ApAdError("All ad IDs failed.")); return
+            // Same rule as the single-id flow: after a timeout the flow already continued.
+            if (!isTimeout) listener.onFailed(ApAdError("All ad IDs failed."))
+            return
         }
         loadInterstitialAdRaw(ids[index], object : InterstitialAdListener {
-            override fun onLoaded(ad: ApInterstitialAd) {
-                interstitialSplash = ad.interstitialAd
-                FullScreenAdLruCache.put(SPLASH_TAG, ad)
-                clearSplashTimeout()
-                if (isTimeout || isTimeDelay) listener.onReady()
-            }
+            override fun onLoaded(ad: ApInterstitialAd) = onSplashLoaded(ad, listener)
 
             override fun onFailed(error: ApAdError) {
                 loadNextAdSplashList(ids, index + 1, listener)
@@ -404,7 +388,7 @@ object InterstitialAdManager {
                 activity,
                 ad,
                 listener,
-                loadingAdsDialog
+                loadingDialog.current
             )
         }
     }
@@ -425,11 +409,7 @@ object InterstitialAdManager {
 
     private fun safeDismissDialog(activity: Activity) {
         isShowLoadingSplash = false
-        AdsProvider.runOnMain {
-            if (loadingAdsDialog?.isShowing == true && !activity.isFinishing && !activity.isDestroyed) {
-                runCatching { loadingAdsDialog?.dismiss() }
-                loadingAdsDialog = null
-            }
-        }
+        // Always release the reference: a finishing Activity used to leave it pinned here.
+        AdsProvider.runOnMain { loadingDialog.dismiss() }
     }
 }

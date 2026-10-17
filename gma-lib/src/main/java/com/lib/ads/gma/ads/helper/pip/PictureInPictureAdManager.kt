@@ -11,6 +11,7 @@ import com.google.android.libraries.ads.mobile.sdk.pip.PictureInPictureAdOptions
 import com.google.android.libraries.ads.mobile.sdk.pip.PictureInPictureAdPosition
 import com.google.android.libraries.ads.mobile.sdk.pip.PictureInPictureAdPresentationScope
 import com.google.android.libraries.ads.mobile.sdk.pip.PictureInPictureAdRequest
+import com.lib.ads.gma.ads.util.runOnMain
 
 /**
  * App-level holder for a PiP ad. Use APPLICATION scope when the ad should survive
@@ -31,13 +32,14 @@ object PictureInPictureAdManager {
         PictureInPictureAd.load(
             PictureInPictureAdRequest.Builder(adUnitId).build(),
             object : AdLoadCallback<PictureInPictureAd> {
-                override fun onAdLoaded(loadedAd: PictureInPictureAd) {
+                // Background-thread SDK callbacks; `ad` is read by the @MainThread API.
+                override fun onAdLoaded(loadedAd: PictureInPictureAd) = runOnMain {
                     ad = loadedAd
                     loadedAd.adEventCallback = eventCallback
                     onLoaded?.invoke()
                 }
 
-                override fun onAdFailedToLoad(error: LoadAdError) {
+                override fun onAdFailedToLoad(error: LoadAdError) = runOnMain {
                     onFailedToLoad?.invoke(error)
                 }
             },

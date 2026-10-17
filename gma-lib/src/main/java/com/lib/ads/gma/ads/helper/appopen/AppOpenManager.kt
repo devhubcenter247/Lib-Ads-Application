@@ -44,6 +44,7 @@ class AppOpenManager private constructor() : Application.ActivityLifecycleCallba
     private var isInitialized: Boolean = false
     var isAppResumeEnabled: Boolean = true
         private set
+    @Volatile
     var isInterstitialShowing: Boolean = false
     private var enableScreenContentCallback: Boolean = false
     private var disableAdResumeByClickAction: Boolean = false
@@ -64,6 +65,8 @@ class AppOpenManager private constructor() : Application.ActivityLifecycleCallba
         @Volatile
         private var INSTANCE: AppOpenManager? = null
 
+        /** Written from SDK background callbacks, read on main before every resume show. */
+        @Volatile
         @JvmStatic
         var isShowingAd: Boolean = false
             internal set

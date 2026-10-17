@@ -149,9 +149,10 @@ object AppOpenAdPreload {
         AppOpenAd.load(
             AdsManager.getAdRequest(adUnitId, placementId),
             object : AdLoadCallback<AppOpenAd> {
-                override fun onAdLoaded(ad: AppOpenAd) = callback.onLoaded(ad)
+                // Background-thread SDK callbacks; the waterfall and listeners run on main.
+                override fun onAdLoaded(ad: AppOpenAd) = runOnMain { callback.onLoaded(ad) }
                 override fun onAdFailedToLoad(adError: LoadAdError) =
-                    callback.onFailed(ApAdError(adError))
+                    runOnMain { callback.onFailed(ApAdError(adError)) }
             },
         )
     }
