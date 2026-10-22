@@ -94,6 +94,10 @@ class ConsentManager(private val activity: Activity) {
             }
             if (updated) {
                 AdsProvider.getInstance().onConsentUpdated(activity)
+                // Consent-first apps (initializeAdsOnCreate() = false) wait for this point; an app
+                // that forgot to call initializeIfNeeded() ran the whole session without ads.
+                // Idempotent, so apps that already call it are unaffected.
+                if (canRequestAds) AdsProvider.getInstance().initializeIfNeeded()
                 return
             }
             if (attempt < maxRetries) delay(retryDelayMs)

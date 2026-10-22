@@ -1,6 +1,7 @@
 package com.lib.ads.gma.ads.helper.reward
 
 import android.app.Activity
+import com.lib.ads.gma.ads.helper.fullscreen.preload.FullScreenAdStore
 import android.app.Dialog
 import android.content.Context
 import android.os.Looper
@@ -44,7 +45,13 @@ open class RewardedInterstitialAdHelper(
     private val appContext = context.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val listeners = CopyOnWriteArrayList<RewardAdListener>()
+    /** An ad is on screen; a destroy() meanwhile keeps the listeners until the show ends, so the reward still arrives. */
+    private var isShowing = false
+    private var destroyed = false
+    // Every read drops an ad older than the store TTL: rewarded ads expire an hour after loading.
     private var currentAd: ApRewardAd? = null
+        get() = field?.takeIf { System.currentTimeMillis() - it.loadedAtMs < FullScreenAdStore.DEFAULT_TTL_MS }
+            .also { if (it == null) field = null }
     private var loadJob: Job? = null
     private var pendingShowGate: com.lib.ads.gma.ads.helper.fullscreen.ForegroundGateHandle? = null
     private var preloadId: String? = config.preloadTag
@@ -136,6 +143,7 @@ open class RewardedInterstitialAdHelper(
             emit { it.onNotReady() }; callback?.onNotReady(); return
         }
         currentAd = null
+        isShowing = true
         RewardAdManager.showRewardedInterstitialAd(activity, ad, forwardingListener(callback), waitingDialog)
     }
 
@@ -205,13 +213,23 @@ open class RewardedInterstitialAdHelper(
         override fun onRewarded(ad: ApRewardAd, item: ApRewardItem) { emit { it.onRewarded(ad, item) }; callback?.onRewarded(ad, item) }
         override fun onDismissed(ad: ApRewardAd) {
             emit { it.onDismissed(ad) }; callback?.onDismissed(ad)
-            if (config.autoReloadAfterShow && config.canReloadAds) load()
+            if (!destroyed && config.autoReloadAfterShow && config.canReloadAds) load()
         }
         override fun onRewardedAdClosed(ad: ApRewardAd, earnedReward: Boolean) {
             emit { it.onRewardedAdClosed(ad, earnedReward) }; callback?.onRewardedAdClosed(ad, earnedReward)
+            endShow()
         }
-        override fun onFailedToShow(error: ApAdError) { emit { it.onFailedToShow(error) }; callback?.onFailedToShow(error) }
+        override fun onFailedToShow(error: ApAdError) {
+            emit { it.onFailedToShow(error) }; callback?.onFailedToShow(error)
+            endShow()
+        }
         override fun onPremiumUser(): Boolean = callback?.onPremiumUser() == true
+    }
+
+    /** Terminal show callback: a destroy() that came during the show releases the listeners now. */
+    private fun endShow() {
+        isShowing = false
+        if (destroyed) listeners.clear()
     }
 
     private fun emit(action: (RewardAdListener) -> Unit) {
@@ -221,6 +239,8 @@ open class RewardedInterstitialAdHelper(
 
     fun destroy() {
         if (Looper.myLooper() != Looper.getMainLooper()) { AdsProvider.MAIN.post { destroy() }; return }
-        pendingShowGate?.cancel(); loadJob?.cancel(); currentAd = null; listeners.clear()
+        destroyed = true
+        pendingShowGate?.cancel(); loadJob?.cancel(); currentAd = null
+        if (!isShowing) listeners.clear()
     }
 }

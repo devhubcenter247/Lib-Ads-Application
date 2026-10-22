@@ -302,9 +302,11 @@ object RewardAdManager {
         // SDK callbacks arrive on a background thread; every listener call is marshalled to main in
         // arrival order, so the reward flag is already set when the dismiss post runs.
         val earnedReward = AtomicBoolean(false)
-        val rewardType = if (apAd.isRewardInterstitial()) AdType.REWARDED_INTERSTITIAL else AdType.REWARDED
-        if (apAd.isRewardInterstitial()) {
-            val ad = apAd.rewardInterstitial!!
+        // Read once: the wrapper's fields are public vars and may be cleared after isReady().
+        val rewardInterstitial = apAd.rewardInterstitial
+        val rewardType = if (rewardInterstitial != null) AdType.REWARDED_INTERSTITIAL else AdType.REWARDED
+        if (rewardInterstitial != null) {
+            val ad = rewardInterstitial
             val adUnitId = ad.adUnitIdOrEmpty()
             ad.adEventCallback =(object : RewardedInterstitialAdEventCallback {
                 override fun onAdDismissedFullScreenContent() = runOnMain {
@@ -350,7 +352,12 @@ object RewardAdManager {
                 runOnMain { listener.onRewarded(apAd, ApRewardItem(rewardItem)) }
             }
         } else {
-            val ad = apAd.rewardAd!!
+            val ad = apAd.rewardAd ?: run {
+                waitingDialog.dismissSafely()
+                AdsProvider.getInstance().setFullScreenAdShowing(false)
+                listener.onNotReady()
+                return
+            }
             val adUnitId = ad.adUnitIdOrEmpty()
             ad.adEventCallback =(object : RewardedAdEventCallback {
                 override fun onAdDismissedFullScreenContent() = runOnMain {

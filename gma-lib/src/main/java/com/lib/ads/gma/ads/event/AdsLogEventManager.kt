@@ -3,6 +3,7 @@ package com.lib.ads.gma.ads.event
 import android.content.Context
 import android.os.Bundle
 import android.util.Log
+import com.lib.ads.gma.ads.util.AppLogger
 import com.google.android.libraries.ads.mobile.sdk.common.Ad
 import com.google.android.libraries.ads.mobile.sdk.common.AdValue
 import com.google.android.libraries.ads.mobile.sdk.common.ResponseInfo
@@ -37,7 +38,8 @@ object AdsLogEventManager {
 
     private fun logPaidImpression(context: Context, impression: PaidImpression) {
         val appContext = context.applicationContext
-        Log.d(
+        // AppLogger: silent in release, revenue values do not belong in production logcat.
+        AppLogger.d(
             TAG,
             "paid: ${impression.valueMicros} micros ${impression.currency} precision=${impression.precision} " +
                 "format=${impression.adFormat} unit=${impression.adUnitId} source=${impression.adSourceName}",
@@ -75,7 +77,7 @@ object AdsLogEventManager {
 
     @JvmStatic
     fun logClickAdsEvent(context: Context, adUnitId: String?) {
-        Log.d(TAG, "User click ad for ad unit $adUnitId")
+        AppLogger.d(TAG, "User click ad for ad unit $adUnitId")
         if (adUnitId.isNullOrEmpty()) return
         val appContext = context.applicationContext
         val bundle = Bundle().apply { putString("ad_unit_id", adUnitId) }
@@ -112,7 +114,7 @@ object AdsLogEventManager {
     fun logTotalRevenueAdIn3DaysIfNeed(context: Context) {
         if (!isInstallOlderThan(context, THREE_DAYS_MS)) return
         if (!SharePreferenceUtils.markPushedRevenue3DayIfNeeded(context)) return
-        Log.d(TAG, "logTotalRevenueAdAt3DaysIfNeed")
+        AppLogger.d(TAG, "logTotalRevenueAdAt3DaysIfNeed")
         logCurrentTotalRevenueAd(context, "event_total_revenue_ad_in_3_days")
     }
 
@@ -120,7 +122,7 @@ object AdsLogEventManager {
     fun logTotalRevenueAdIn7DaysIfNeed(context: Context) {
         if (!isInstallOlderThan(context, SEVEN_DAYS_MS)) return
         if (!SharePreferenceUtils.markPushedRevenue7DayIfNeeded(context)) return
-        Log.d(TAG, "logTotalRevenueAdAt7DaysIfNeed")
+        AppLogger.d(TAG, "logTotalRevenueAdAt7DaysIfNeed")
         logCurrentTotalRevenueAd(context, "event_total_revenue_ad_in_7_days")
     }
 

@@ -99,11 +99,12 @@ object AppOpenAdManager {
             terminal()
         }
 
-        timeoutRunnable = Runnable {
+        val timeout = Runnable {
             openAdLoaded = null
             finish { listener.onNextAction() }
         }
-        if (timeOut > 0) mainHandler.postDelayed(timeoutRunnable!!, timeOut)
+        timeoutRunnable = timeout
+        if (timeOut > 0) mainHandler.postDelayed(timeout, timeOut)
 
         fun onAdReady(ad: AppOpenAd) {
             if (!isCurrent()) {
@@ -116,8 +117,9 @@ object AppOpenAdManager {
             // Loaded in time: the timeout must not continue the flow a second time later.
             timeoutRunnable?.let(mainHandler::removeCallbacks)
             val remaining = timeDelay - (System.currentTimeMillis() - startedAt)
-            readyRunnable = Runnable { finish { listener.onReady() } }
-            mainHandler.postDelayed(readyRunnable!!, remaining.coerceAtLeast(0L))
+            val ready = Runnable { finish { listener.onReady() } }
+            readyRunnable = ready
+            mainHandler.postDelayed(ready, remaining.coerceAtLeast(0L))
         }
 
         val poll = Runnable {
@@ -257,8 +259,8 @@ object AppOpenAdManager {
     fun checkShowSplashWhenFail(activity: Activity, listener: AppOpenAdListener, delayMs: Long) {
         CoroutineScope(Dispatchers.Main.immediate).launch {
             delay(delayMs.milliseconds)
-            if (openAdLoaded != null && !showing) {
-                val ad = openAdLoaded!!
+            val ad = openAdLoaded
+            if (ad != null && !showing) {
                 openAdLoaded = null
                 FullScreenAdLruCache.clear(DEFAULT_TAG)
                 showAd(activity, appOpenAd = ad, listener)

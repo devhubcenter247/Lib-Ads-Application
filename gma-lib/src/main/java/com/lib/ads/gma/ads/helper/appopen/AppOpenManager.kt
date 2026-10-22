@@ -95,7 +95,7 @@ class AppOpenManager private constructor() : Application.ActivityLifecycleCallba
         disableAdResumeByClickAction = false
         myApplication = application
         if (!alreadyRegistered) {
-            myApplication!!.registerActivityLifecycleCallbacks(this)
+            application.registerActivityLifecycleCallbacks(this)
             ProcessLifecycleOwner.get().lifecycle.addObserver(this as LifecycleObserver)
         }
         appResumeAdId = appOpenAdId
@@ -110,7 +110,7 @@ class AppOpenManager private constructor() : Application.ActivityLifecycleCallba
         disableAdResumeByClickAction = false
         myApplication = application
         if (!alreadyRegistered) {
-            myApplication!!.registerActivityLifecycleCallbacks(this)
+            application.registerActivityLifecycleCallbacks(this)
             ProcessLifecycleOwner.get().lifecycle.addObserver(this as LifecycleObserver)
         }
         this.appResumeAdIdList = appOpenAdIdList
@@ -224,9 +224,7 @@ class AppOpenManager private constructor() : Application.ActivityLifecycleCallba
         if (Looper.myLooper() != Looper.getMainLooper()) { AdsProvider.MAIN.post { showAdIfAvailable() }; return }
         val currentActivity = getCurrentActivity()
         if (currentActivity == null || AppPurchase.getInstance().isPurchased()) {
-            if (appOpenAdEventCallback != null && enableScreenContentCallback) {
-                appOpenAdEventCallback!!.onAdDismissedFullScreenContent()
-            }
+            if (enableScreenContentCallback) appOpenAdEventCallback?.onAdDismissedFullScreenContent()
             return
         }
         if (currentActivity.isFinishing || currentActivity.isDestroyed) {
@@ -236,9 +234,7 @@ class AppOpenManager private constructor() : Application.ActivityLifecycleCallba
         AppLogger.d(TAG, "showAdIfAvailable: ${ProcessLifecycleOwner.get().lifecycle.currentState}")
         if (!ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
             AppLogger.d(TAG, "showAdIfAvailable: return")
-            if (appOpenAdEventCallback != null && enableScreenContentCallback) {
-                appOpenAdEventCallback!!.onAdDismissedFullScreenContent()
-            }
+            if (enableScreenContentCallback) appOpenAdEventCallback?.onAdDismissedFullScreenContent()
             return
         }
         if (!isShowingAd && isAdAvailable() && eligibilityGate?.invoke() != false) {
@@ -333,11 +329,8 @@ class AppOpenManager private constructor() : Application.ActivityLifecycleCallba
             }
         }
         AppLogger.d(TAG, "onResume: show resume ads :${currentActivity.javaClass.simpleName}")
-        if (adResumePreShowListener != null) {
-            adResumePreShowListener!!.onPreShowAd()
-        } else {
-            showAdIfAvailable()
-        }
+        val preShowListener = adResumePreShowListener
+        if (preShowListener != null) preShowListener.onPreShowAd() else showAdIfAvailable()
     }
 
     override fun onStop(owner: LifecycleOwner) {

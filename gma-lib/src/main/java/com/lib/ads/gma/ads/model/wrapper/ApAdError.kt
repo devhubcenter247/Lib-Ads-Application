@@ -34,8 +34,8 @@ class ApAdError {
 
     /** Diagnostic representation suitable for logs; keeps the underlying GMA error details. */
     fun debugDescription(): String = when {
-        loadAdError != null -> "message=${loadAdError!!.message} sdkError=$loadAdError"
-        fullScreenContentError != null -> "message=${fullScreenContentError!!.message} sdkError=$fullScreenContentError"
+        loadAdError != null -> "message=${loadAdError?.message} sdkError=$loadAdError"
+        fullScreenContentError != null -> "message=${fullScreenContentError?.message} sdkError=$fullScreenContentError"
         errorMessage.isNotEmpty() -> "message=$errorMessage"
         else -> "message=unknown error"
     }

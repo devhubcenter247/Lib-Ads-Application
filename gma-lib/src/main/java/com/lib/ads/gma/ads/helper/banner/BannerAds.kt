@@ -77,10 +77,11 @@ object BannerAds {
 
     fun preload(tag: String, adUnitIds: List<String>, placementId: Long? = null) {
         val spec = specs[tag]
-        if (spec == null || spec.adUnitIds != adUnitIds || spec.placementId != placementId) {
-            register(BannerAdSpec(tag, adUnitIds, placementId))
+        val current = if (spec == null || spec.adUnitIds != adUnitIds || spec.placementId != placementId) {
+            BannerAdSpec(tag, adUnitIds, placementId).also(::register)
+        } else {
+            spec
         }
-        val current = specs[tag]!!
         preloadInternal(current, force = false)
     }
 
@@ -195,6 +196,21 @@ object BannerAds {
             ),
             force = false,
         )
+    }
+
+    /**
+     * Low memory: destroys the buffered (not yet shown) banners. Banners already on screen are not
+     * touched; the next request loads fresh ones.
+     */
+    internal fun trimBuffers() {
+        scope.launch {
+            tagCaches.snapshot().keys.forEach { tag ->
+                // remove() does not go through the eviction branch of entryRemoved: destroy here.
+                tagCaches.remove(tag)?.forEach(::destroyCached)
+                preloadStartedAt.remove(tag)
+                if (preloadJobs[tag]?.isActive != true) state(tag).value = BannerPreloadState.Idle
+            }
+        }
     }
 
     fun stateFlow(tag: String): StateFlow<BannerPreloadState> = state(tag)
@@ -364,6 +380,11 @@ object BannerAds {
         spec: BannerAdSpec,
         failures: MutableList<String> = mutableListOf(),
     ): CachedBanner? {
+        // Calls the SDK directly: it must not run before MobileAds.initialize (consent-first apps).
+        if (!AdsProvider.getInstance().awaitReadySuspend()) {
+            failures += "Mobile Ads SDK not initialized"
+            return null
+        }
         for (id in spec.adUnitIds) {
             val result = loadOneBanner(context, spec, id, failures)
             if (result != null) return result

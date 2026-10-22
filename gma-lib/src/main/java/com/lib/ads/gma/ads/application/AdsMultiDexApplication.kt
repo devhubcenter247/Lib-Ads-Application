@@ -1,11 +1,16 @@
 package com.lib.ads.gma.ads.application
 
+import android.app.ActivityManager
+import android.os.Build
+import android.os.Process
 import androidx.multidex.MultiDexApplication
 import com.google.android.libraries.ads.mobile.sdk.common.ExperimentalApi
 import com.google.android.ump.UserMessagingPlatform
 import com.lib.ads.gma.ads.config.AdSdkConfig
 import com.lib.ads.gma.ads.engine.AdsProvider
 import com.lib.ads.gma.ads.event.FirebaseAnalyticsUtil
+import com.lib.ads.gma.ads.helper.adnative.NativeAds
+import com.lib.ads.gma.ads.helper.banner.BannerAds
 import com.lib.ads.gma.ads.util.AppUtil
 import com.lib.ads.gma.ads.util.SharePreferenceUtils
 
@@ -28,11 +33,16 @@ abstract class AdsMultiDexApplication : MultiDexApplication() {
     protected open fun initializeAttributionOnCreate(): Boolean = true
 
     fun initializeAds(onReady: (() -> Unit)? = null) {
+        // Not configured in a secondary process (see onCreate).
+        if (!::adSdkConfig.isInitialized) return
         AdsProvider.getInstance().initialize(this, adSdkConfig, onReady)
     }
 
     override fun onCreate() {
         super.onCreate()
+        // A secondary process (one declared by the app or by a mediation SDK) must not start ads,
+        // attribution or Firebase a second time: duplicate sessions/events and wasted startup.
+        if (!isMainProcess()) return
         adSdkConfig = createAdSdkConfig()
         check(!adSdkConfig.appAdId.isNullOrBlank()) {
             "AdsMultiDexApplication.createAdSdkConfig() must provide appAdId"
@@ -53,6 +63,27 @@ abstract class AdsMultiDexApplication : MultiDexApplication() {
         if (initializeAdsOnCreate() || hasStoredAdConsent()) {
             initializeAds()
         }
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        // The app is in the background and the system wants memory back: drop buffered native and
+        // banner ads (views + media). Full-screen ads are small and kept.
+        if (level >= TRIM_MEMORY_BACKGROUND) {
+            NativeAds.trimBuffers()
+            BannerAds.trimBuffers()
+        }
+    }
+
+    private fun isMainProcess(): Boolean {
+        val name = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            getProcessName()
+        } else {
+            getSystemService(ActivityManager::class.java)?.runningAppProcesses
+                ?.firstOrNull { it.pid == Process.myPid() }?.processName
+        }
+        // Unknown name: assume main rather than skip initialization altogether.
+        return name == null || name == packageName
     }
 
     private fun hasStoredAdConsent(): Boolean =

@@ -113,7 +113,8 @@ object InterstitialAdManager {
         ad: ApInterstitialAd,
         listener: InterstitialAdListener
     ) {
-        if (ad.interstitialAd == null || ad.isNotReady()) {
+        val interstitialAd = ad.interstitialAd
+        if (interstitialAd == null || ad.isNotReady()) {
             Log.e(TAG, "forceShowInterstitial: ad is not ready"); listener.onFailedToShow(
                 ApAdError(
                     "Interstitial not ready"
@@ -122,7 +123,7 @@ object InterstitialAdManager {
         } else {
             CoroutineScope(Dispatchers.Main.immediate).launch {
                 runCatching {
-                    showAd(activity, ad.interstitialAd!!, listener, loadingDialog.current)
+                    showAd(activity, interstitialAd, listener, loadingDialog.current)
                 }
             }
         }

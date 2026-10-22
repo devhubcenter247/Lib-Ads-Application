@@ -2,7 +2,7 @@ package com.lib.ads.gma.ads.helper.banner
 
 import com.lib.ads.gma.ads.helper.banner.params.BannerSize
 import com.lib.ads.gma.ads.helper.utils.BannerCollapseGravity
-import java.util.concurrent.TimeUnit
+import com.lib.ads.gma.ads.helper.fullscreen.preload.FullScreenAdStore
 
 enum class BannerHeightConfig {
     LARGE_PORTRAIT_ADAPTIVE,
@@ -14,7 +14,8 @@ class BannerAdSpec(
     val adUnitIds: List<String>,
     val placementId: Long? = null,
     val bufferSize: Int = 1,
-    val ttlMs: Long = TimeUnit.HOURS.toMillis(4),
+    // A preloaded banner should be shown within an hour of loading (only app-open ads last 4 h).
+    val ttlMs: Long = FullScreenAdStore.DEFAULT_TTL_MS,
     val size: BannerSize = BannerSize.LargePortraitAdaptive,
     val collapsibleGravity: BannerCollapseGravity? = null,
 ) {

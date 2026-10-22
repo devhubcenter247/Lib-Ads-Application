@@ -186,7 +186,21 @@ open class InterstitialAdHelper(
     private val scope: CoroutineScope get() = lifecycleOwner.lifecycleScope
     private data class LoadedInterstitial(val adUnitId: String, val ad: InterstitialAd)
 
+    // Every read drops an ad older than the store TTL: interstitials expire an hour after loading
+    // and would only fail to show, while a missing ad makes the next show / resume load a new one.
     private var interstitialAdLocal: InterstitialAd? = null
+        get() {
+            val loadedAt = localAdLoadedAtMs
+            val ad = field
+            if (ad != null && ad !== showingAd && loadedAt != null &&
+                System.currentTimeMillis() - loadedAt >= FullScreenAdStore.DEFAULT_TTL_MS
+            ) {
+                field = null
+                localAdLoadedAtMs = null
+                runCatching { ad.destroy() }
+            }
+            return field
+        }
     /** Load time of an ad this helper owns (loaded here or taken from the store); null for an app-supplied one. */
     private var localAdLoadedAtMs: Long? = null
     /** The ad handed to show(); it must not be offered back to the store. */
@@ -411,6 +425,11 @@ open class InterstitialAdHelper(
     }
 
     private suspend fun loadFromList(adIds: List<String>): LoadedInterstitial? {
+        // Calls the SDK directly: it must not run before MobileAds.initialize (consent-first apps).
+        if (!AdsProvider.getInstance().awaitReadySuspend()) {
+            logZ("loadFromList: Mobile Ads SDK not initialized")
+            return null
+        }
         for ((index, adId) in adIds.withIndex()) {
             logZ("Trying ad ID at index $index: $adId")
             val result = loadSingleAd(adId)

@@ -313,8 +313,10 @@ class AppOpenAdHelper(
         )
     }
 
-    private suspend fun loadSingleAppOpenAd(id: String): AppOpenPreloadState =
-        withContext(Dispatchers.Main.immediate) {
+    private suspend fun loadSingleAppOpenAd(id: String): AppOpenPreloadState {
+        // Calls the SDK directly: it must not run before MobileAds.initialize (consent-first apps).
+        if (!AdsProvider.getInstance().awaitReadySuspend()) return AppOpenPreloadState.Cancel
+        return withContext(Dispatchers.Main.immediate) {
             suspendCancellableCoroutine { continuation ->
                 val startedAt = AdHealthEvents.now()
                 AppOpenAd.load(
@@ -346,6 +348,7 @@ class AppOpenAdHelper(
                 }
             }
         }
+    }
 
     private fun showAppOpenAd(
         activity: Activity,
