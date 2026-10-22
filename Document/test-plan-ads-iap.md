@@ -134,3 +134,23 @@ Still open (low risk or outside gma-lib):
 | 3 | Consumable bought with the **old** lib whose consume failed may be granted again once after updating | Rare double grant | Accept |
 | 4 | `adlib` keeps its own older tracking code | Only apps still on adlib | Migrate them to gma-lib |
 | 5 | Sample app has no `google-services.json` and no IAP screen | Firebase / IAP need a private test app | Add to a private test app |
+
+## 10. 1.3.0 — stability changes
+
+Unit tests: 62, incl. Robolectric `ConsumableDeliveryTest`. Device-only checks:
+
+| # | Steps | Expected |
+|---|-------|----------|
+| 10.1 | Interstitial via `InterstitialAdHelper.waitLoadAndShow` with `finish()` in `onNextAction`; close the ad | Navigates **once**; DebugView shows the interstitial `ad_impression`; background → foreground shows the app-open resume ad again |
+| 10.2 | Splash interstitial with no network / all ids failing | Splash continues **once**, no second navigation when the timeout would have fired |
+| 10.3 | Rotate a screen holding a loaded but unshown interstitial | The next screen shows that ad without a new request (logcat: no second load) |
+| 10.4 | Open a screen, wait > 55 min, show (or fake the clock) | Interstitial / rewarded / native / banner older than 55 min are reloaded, not shown |
+| 10.5 | `waitLoadAndShow` on a slow network | Loading cover gone after ≤ 8 s; a late fill is shown on the next attempt |
+| 10.6 | Consent-first app (`initializeAdsOnCreate() = false`), EEA debug geography, open a banner/interstitial screen before answering | No crash; ads load once consent is given, without the app calling `initializeIfNeeded()` |
+| 10.7 | Buy a **consumable** with the "slow" test card, keep the app open until it completes | `setRecoveredConsumableListener` fires **once**; nothing again on the next launch |
+| 10.8 | Cancel a subscription in Play, background the app > 1 min, return | Premium removed and ads back without killing the app |
+| 10.9 | Buy remove-ads | Logcat: no further app-open / rewarded preload requests |
+| 10.10 | Rewarded ad with "Don't keep activities" on; finish the ad | `onRewarded` + `onRewardedAdClosed` still reach listeners registered with `registerAdListener` |
+| 10.11 | `adb shell am send-trim-memory <applicationId> BACKGROUND`, reopen a native/banner screen | No crash; ads reload |
+| 10.12 | App with a secondary process (`android:process=":x"` service) | Adjust / AppsFlyer / Firebase / ads start only in the main process (one Adjust session) |
+| 10.13 | Release build, logcat | No `paid:` revenue lines from `AdsLogEventManager`, no `AppOpenManager` lifecycle lines |
