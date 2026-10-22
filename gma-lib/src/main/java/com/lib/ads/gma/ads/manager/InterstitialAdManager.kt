@@ -1,6 +1,8 @@
 package com.lib.ads.gma.ads.manager
 
 import android.app.Activity
+import com.lib.ads.gma.ads.helper.fullscreen.awaitResumeAdClosed
+import com.lib.ads.gma.ads.helper.appopen.AppOpenManager
 import android.app.Dialog
 import android.os.Handler
 import android.os.Looper
@@ -227,8 +229,12 @@ object InterstitialAdManager {
         }
 
         delay(AdsProvider.getInstance().interstitialShowDelayMs().milliseconds)
-        if (activity.isFinishing || activity.isDestroyed || !isAppInForeground()) {
-            AppLogger.w(TAG, "showAd: Activity is no longer able to show an interstitial")
+        // An app-open resume ad on screen: showing now would stack two full-screen ads, continuing at
+        // once would bury it under the next screen. Wait for it to close, then skip this ad.
+        val resumeAdOnScreen = AppOpenManager.isShowingAd
+        if (resumeAdOnScreen) awaitResumeAdClosed()
+        if (resumeAdOnScreen || activity.isFinishing || activity.isDestroyed || !isAppInForeground()) {
+            AppLogger.w(TAG, "showAd: Activity is no longer able to show an interstitial (resumeAdOnScreen=$resumeAdOnScreen)")
             waitingDialog.dismissSafely()
             AdsProvider.getInstance().setFullScreenAdShowing(false)
             dismissLoadingDialog()

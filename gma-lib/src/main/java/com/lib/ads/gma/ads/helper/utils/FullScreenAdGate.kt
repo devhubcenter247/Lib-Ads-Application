@@ -8,7 +8,11 @@ import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
+import com.lib.ads.gma.ads.helper.appopen.AppOpenManager
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.time.Duration.Companion.milliseconds
 
 /** Foreground gate shared by GMA fullscreen helpers. */
 internal fun isAppInForeground(): Boolean =
@@ -61,6 +65,17 @@ internal class LoadingDialogSlot {
         boundLifecycle?.removeObserver(releaseOnDestroy)
         boundLifecycle = null
         shown.dismissSafely()
+    }
+}
+
+/**
+ * Waits while the app-open resume ad is on screen. A flow-driven ad that finds it there must not
+ * show (two full-screen ads stacked) nor continue at once (the next screen would bury the ad).
+ * ponytail: 200 ms polling of a volatile flag; a callback list if this ever gets more callers.
+ */
+internal suspend fun awaitResumeAdClosed(timeoutMs: Long = 60_000L) {
+    withTimeoutOrNull(timeoutMs.milliseconds) {
+        while (AppOpenManager.isShowingAd) delay(200.milliseconds)
     }
 }
 

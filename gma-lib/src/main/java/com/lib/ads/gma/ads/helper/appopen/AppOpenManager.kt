@@ -2,6 +2,7 @@ package com.lib.ads.gma.ads.helper.appopen
 
 import android.app.Activity
 import android.app.Application
+import android.content.Intent
 import android.app.Dialog
 import android.content.Context
 import android.os.Bundle
@@ -53,6 +54,7 @@ class AppOpenManager private constructor() : Application.ActivityLifecycleCallba
     /** Ids for which [AppOpenAdPreloader.start] has already been called; guards duplicate starts. */
     private val preloadStartedIds: MutableSet<String> = mutableSetOf()
     private var hasBeenInBackground: Boolean = false
+    private var relaunchedViaLauncher: Boolean = false
     private var dialog: Dialog? = null
     private var isEnableList: Boolean = false
     private var adResumePreShowListener: AdResumePreShowListener? = null
@@ -185,7 +187,13 @@ class AppOpenManager private constructor() : Application.ActivityLifecycleCallba
     fun isAdAvailable(isSplash: Boolean): Boolean = if (isSplash) false else isAdAvailable()
 
     override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {
-        // no-op
+        // Reopened from the launcher icon onto a newly created launcher activity (the splash): it
+        // runs its own splash ad, so a resume ad now would stack on it or be buried under the next
+        // screen. Reopening from recents creates no activity and still gets the resume ad.
+        val intent = activity.intent
+        if (hasBeenInBackground && intent?.action == Intent.ACTION_MAIN && intent.hasCategory(Intent.CATEGORY_LAUNCHER)) {
+            relaunchedViaLauncher = true
+        }
     }
 
     override fun onActivityStarted(activity: Activity) {
@@ -300,6 +308,11 @@ class AppOpenManager private constructor() : Application.ActivityLifecycleCallba
             return
         }
         hasBeenInBackground = false
+        if (relaunchedViaLauncher) {
+            relaunchedViaLauncher = false
+            AppLogger.d(TAG, "onStart: reopened through the launcher activity; its splash shows the ad")
+            return
+        }
         val currentActivity = getCurrentActivity()
         if (!isInitialized) {
             AppLogger.d(TAG, "onResume: app not initialized")
@@ -412,6 +425,10 @@ class AppOpenManager private constructor() : Application.ActivityLifecycleCallba
                 AdsLogEventManager.logPaidAdImpression(activity, value, ad, AdType.APP_OPEN)
             }
         }
+        // Set now, not in onAdShowedFullScreenContent: interstitial / splash app-open shows check it
+        // so they do not stack on this ad, and the showed callback arrives a few hundred ms later.
+        // Cleared by the dismissed / failed-to-show callbacks.
+        isShowingAd = true
         ad.show(activity)
     }
 

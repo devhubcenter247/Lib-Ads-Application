@@ -1,6 +1,7 @@
 package com.lib.ads.gma.ads.helper.appopen
 
 import android.app.Activity
+import com.lib.ads.gma.ads.helper.fullscreen.awaitResumeAdClosed
 import android.app.Dialog
 import android.os.Looper
 import com.google.android.libraries.ads.mobile.sdk.appopen.AppOpenAd
@@ -356,6 +357,17 @@ class AppOpenAdHelper(
         dialog: Dialog?,
         callback: AppOpenAdListener?,
     ) {
+        // An app-open resume ad already on screen: showing now would stack two full-screen ads, and
+        // continuing at once would bury it under the next screen. Wait for it to close, then skip.
+        if (AppOpenManager.isShowingAd) {
+            scope.launch {
+                awaitResumeAdClosed()
+                dialog.dismissSafely()
+                AdsProvider.getInstance().setFullScreenAdShowing(false)
+                failShow(callback, "App-open resume ad was on screen")
+            }
+            return
+        }
         if (activity.isFinishing || activity.isDestroyed || !isAppInForeground()) {
             dialog.dismissSafely()
             AdsProvider.getInstance().setFullScreenAdShowing(false)

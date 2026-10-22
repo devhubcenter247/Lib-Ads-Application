@@ -6,7 +6,10 @@ import com.lib.ads.gma.ads.application.AdsMultiDexApplication
 import com.lib.ads.gma.ads.config.AdSdkConfig
 import com.lib.ads.gma.ads.config.AdjustConfig
 import com.lib.ads.gma.ads.config.AppsflyerConfig
+import com.lib.ads.gma.ads.manager.AdsManager
 import com.lib.ads.gma.ads.util.AppLogger
+import com.lib.ads.gma.app.gma.splash.NativeSplashActivity
+import com.lib.ads.gma.app.gma.splash.SplashActivity
 
 class GmaApplication : AdsMultiDexApplication() {
 
@@ -43,6 +46,8 @@ class GmaApplication : AdsMultiDexApplication() {
     override fun onCreate() {
         super.onCreate()
         AppLogger.isEnabled= true
+        // Splash runs its own splash ad: an app-open resume ad on top of it stacks two full-screen ads.
+        AdsManager.excludeAppOpen(SplashActivity::class.java, NativeSplashActivity::class.java)
     }
 
 }

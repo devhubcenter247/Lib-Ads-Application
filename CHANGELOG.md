@@ -15,6 +15,11 @@ Stability release. Update from 1.2.4 is source-compatible; read **Behaviour chan
 - **Splash interstitial** reaches the listener with exactly one terminal callback
   (`onReady` / `onNextAction` / `onFailed`); a failed waterfall also fired `onNextAction` when the
   timeout elapsed.
+- **Stacked full-screen ads**: reopening the app from the launcher icon (which creates a new
+  splash) showed the app-open resume ad and then the splash interstitial on top of it. The resume
+  ad is now skipped when the app returns through a newly created launcher activity, and an
+  interstitial / splash app-open that finds a resume ad on screen waits for it to close and is
+  skipped (the flow continues) instead of stacking or burying it under the next screen.
 - **IAP**: a consumable whose pending payment completed while the app was running (or a promo
   code) was consumed without reaching the app. It now goes to `setRecoveredConsumableListener`.
 - **Rewarded helpers**: a screen destroyed while the ad was showing dropped the reward for
@@ -38,6 +43,7 @@ Stability release. Update from 1.2.4 is source-compatible; read **Behaviour chan
 | Purchases | queried at start and after a purchase | also on return to foreground (≥ 60 s apart) |
 | `ConsentManager.requestUMP()` | only updates consent | also calls `initializeIfNeeded()` when ads may be requested |
 | Low memory in background (`onTrimMemory ≥ TRIM_MEMORY_BACKGROUND`) | — | buffered native / banner ads are destroyed |
+| App-open resume ad when reopened from the launcher icon onto a new launcher activity | shown | skipped (the splash shows its own ad); reopening from recents still shows it |
 | Secondary processes | ads, attribution, Firebase initialized in every process | main process only |
 | Logcat in release | revenue values and app-open lifecycle logged | through `AppLogger` (off unless enabled) |
 

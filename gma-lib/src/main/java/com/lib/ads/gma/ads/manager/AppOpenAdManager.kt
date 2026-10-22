@@ -1,6 +1,8 @@
 package com.lib.ads.gma.ads.manager
 
 import android.app.Activity
+import com.lib.ads.gma.ads.helper.fullscreen.awaitResumeAdClosed
+import com.lib.ads.gma.ads.helper.appopen.AppOpenManager
 import android.app.Dialog
 import android.os.Handler
 import android.os.Looper
@@ -159,6 +161,18 @@ object AppOpenAdManager {
 
         val scope = CoroutineScope(Dispatchers.Main.immediate)
         val adUnitId = appOpenAd.adUnitId
+        // An app-open resume ad already on screen: a splash app-open now would stack on it, and
+        // continuing at once would bury it under the next screen. Wait for it to close, then skip.
+        if (AppOpenManager.isShowingAd) {
+            AppLogger.w(TAG, "showAd: resume ad on screen, skipping the splash app-open after it closes")
+            scope.launch {
+                awaitResumeAdClosed()
+                waitingDialog.dismissSafely()
+                AdsProvider.getInstance().setFullScreenAdShowing(false)
+                oneShotCallback?.onNextAction()
+            }
+            return
+        }
         if (activity.isFinishing || activity.isDestroyed) {
             AppLogger.w(TAG, "showAd: Activity can no longer show an ad")
             waitingDialog.dismissSafely()

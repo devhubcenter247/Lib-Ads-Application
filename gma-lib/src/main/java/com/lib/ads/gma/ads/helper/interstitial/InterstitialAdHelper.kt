@@ -1,6 +1,8 @@
 package com.lib.ads.gma.ads.helper.interstitial
 
 import android.app.Activity
+import com.lib.ads.gma.ads.helper.fullscreen.awaitResumeAdClosed
+import com.lib.ads.gma.ads.helper.appopen.AppOpenManager
 import android.app.Dialog
 import android.content.Context
 import androidx.lifecycle.Lifecycle
@@ -578,7 +580,11 @@ open class InterstitialAdHelper(
         }
 
         delay(AdsProvider.getInstance().interstitialShowDelayMs().milliseconds)
-        if (activity.isFinishing || activity.isDestroyed || !isAppInForeground()) {
+        // An app-open resume ad on screen: showing now would stack two full-screen ads, continuing at
+        // once would bury it under the next screen. Wait for it to close, then skip this show.
+        val resumeAdOnScreen = AppOpenManager.isShowingAd
+        if (resumeAdOnScreen) awaitResumeAdClosed()
+        if (resumeAdOnScreen || activity.isFinishing || activity.isDestroyed || !isAppInForeground()) {
             // The ad stays in interstitialAdLocal: shown on a later attempt or offered back on destroy.
             logZ("showAd: Activity is no longer able to show an interstitial")
             waitingDialog.dismissSafely()

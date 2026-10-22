@@ -154,3 +154,5 @@ Unit tests: 62, incl. Robolectric `ConsumableDeliveryTest`. Device-only checks:
 | 10.11 | `adb shell am send-trim-memory <applicationId> BACKGROUND`, reopen a native/banner screen | No crash; ads reload |
 | 10.12 | App with a secondary process (`android:process=":x"` service) | Adjust / AppsFlyer / Firebase / ads start only in the main process (one Adjust session) |
 | 10.13 | Release build, logcat | No `paid:` revenue lines from `AdsLogEventManager`, no `AppOpenManager` lifecycle lines |
+| 10.14 | Close the splash interstitial, Home, reopen from the **launcher icon** | Exactly one full-screen ad (the splash one); logcat `reopened through the launcher activity`; no `AdActivity` left under `MainActivity` |
+| 10.15 | Same, but reopen from **recents** | App-open resume ad shows over the current screen |
