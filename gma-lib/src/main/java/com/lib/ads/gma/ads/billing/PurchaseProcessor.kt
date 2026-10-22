@@ -237,8 +237,12 @@ internal class PurchaseProcessor(
                 if (!consume) {
                     verifier.grantEntitlements(repository.getEntitlements(productId))
                 } else {
-                    // Delivered to the flow callback now; a later refresh must not hand it out again.
-                    SharePreferenceUtils.markPurchaseTrackedIfNew(context, grantKey(purchase))
+                    // Delivered now; a later refresh must not hand it out again.
+                    val firstDelivery = SharePreferenceUtils.markPurchaseTrackedIfNew(context, grantKey(purchase))
+                    // No purchase flow is waiting (a pending payment completed later, a promo code
+                    // redeemed while the app runs): without this the item was consumed and the user
+                    // paid for nothing.
+                    if (firstDelivery && purchaseEventCallback == null) deliverRecoveredConsumable(purchase, productId)
                 }
                 purchaseEventCallback?.invoke(
                     PurchaseEvent.Success(purchase.orderId, productId, purchase.originalJson)
@@ -290,14 +294,7 @@ internal class PurchaseProcessor(
         if (!isSubscription && repository.shouldConsume(productId) &&
             SharePreferenceUtils.markPurchaseTrackedIfNew(context, grantKey(purchase))
         ) {
-            val listener = onRecoveredConsumable
-            if (listener == null) {
-                AppLogger.w(TAG, "onRecovered: consumable $productId consumed without an onRecoveredConsumable listener")
-            } else {
-                com.lib.ads.gma.ads.engine.AdsProvider.runOnMain {
-                    listener(PurchaseEvent.Success(purchase.orderId, productId, purchase.originalJson))
-                }
-            }
+            deliverRecoveredConsumable(purchase, productId)
         }
         // ponytail: the offer behind a recovered subscription is unknown (a trial looks like the
         // base plan), so its start revenue is skipped rather than guessed; Adjust/AppsFlyer
@@ -311,6 +308,18 @@ internal class PurchaseProcessor(
     }
 
     private fun grantKey(purchase: Purchase) = "grant:" + purchase.purchaseToken
+
+    /** Hands a consumable that no purchase flow is waiting for to [onRecoveredConsumable]. */
+    private fun deliverRecoveredConsumable(purchase: Purchase, productId: String) {
+        val listener = onRecoveredConsumable
+        if (listener == null) {
+            AppLogger.w(TAG, "consumable $productId consumed without an onRecoveredConsumable listener")
+            return
+        }
+        com.lib.ads.gma.ads.engine.AdsProvider.runOnMain {
+            listener(PurchaseEvent.Success(purchase.orderId, productId, purchase.originalJson))
+        }
+    }
 
     /** Product details finished loading: report recovered purchases that were waiting for a price. */
     fun onProductDetailsReady() {

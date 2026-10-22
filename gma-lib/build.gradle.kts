@@ -48,6 +48,11 @@ android {
     publishing {
         singleVariant("release")
     }
+
+    // Robolectric unit tests (billing / Android-backed logic) need the merged manifest and resources.
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
 }
 
 kotlin {
@@ -137,6 +142,8 @@ dependencies {
 
     // Test
     testImplementation(libs.junit)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform("androidx.compose:compose-bom:2026.09.00"))

@@ -2,6 +2,10 @@ package com.lib.ads.gma.ads.billing
 
 import android.app.Activity
 import android.app.Application
+import android.os.SystemClock
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import com.lib.ads.gma.ads.engine.AdsProvider
 import com.lib.ads.gma.ads.engine.whenAdsReady
 import com.lib.ads.gma.ads.manager.AdsManager
@@ -24,6 +28,7 @@ class AppPurchase private constructor() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var timeoutJob: Job? = null
+    private var lastForegroundRefreshAt = 0L
 
     private var connectionManager: BillingConnectionManager? = null
     private var repository: ProductDetailsRepository? = null
@@ -161,9 +166,10 @@ class AppPurchase private constructor() {
     fun getEnableTrackingRevenue(): Boolean = enableTrackingRevenue
 
     /**
-     * Receives a consumable whose payment completed while the app was not running (e.g. a pending
-     * cash payment). Grant its content here — the SDK consumes it right after this call. Delivered
-     * on the main thread. Set before [initBilling].
+     * Receives a consumable that no purchase flow is waiting for: a pending payment (e.g. cash)
+     * that completed later — while the app was running or not — or a promo code. Grant its content
+     * here — the SDK consumes it right after this call. Delivered on the main thread. Set before
+     * [initBilling].
      */
     fun setRecoveredConsumableListener(listener: ((PurchaseEvent.Success) -> Unit)?) {
         recoveredConsumableListener = listener
@@ -211,6 +217,21 @@ class AppPurchase private constructor() {
             vfy.isPurchasedFlow().collect { purchased ->
                 if (purchased) whenAdsReady(AdsManager::releasePreloadsForPremium)
             }
+        }
+        // Purchases that changed outside the app (lapsed renewal, refund, pending payment completed)
+        // are picked up when the app returns to the foreground, as Play recommends, instead of only
+        // on the next cold start. The setup query covers the first start.
+        lastForegroundRefreshAt = SystemClock.elapsedRealtime()
+        AdsProvider.runOnMain {
+            ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
+                override fun onStart(owner: LifecycleOwner) {
+                    connMgr.reconnectIfDisconnected()
+                    val now = SystemClock.elapsedRealtime()
+                    if (!connMgr.isInitBillingFinish || now - lastForegroundRefreshAt < FOREGROUND_REFRESH_INTERVAL_MS) return
+                    lastForegroundRefreshAt = now
+                    triggerUpdatePurchaseStatus(notifyListener = false)
+                }
+            })
         }
 
         val proc = PurchaseProcessor(
@@ -326,7 +347,7 @@ class AppPurchase private constructor() {
         )
     }
 
-    private fun triggerUpdatePurchaseStatus() {
+    private fun triggerUpdatePurchaseStatus(notifyListener: Boolean = true) {
         AppLogger.d(TAG, "updatePurchaseStatus: started")
         val repo = repository ?: return
         val vfy = verifier ?: return
@@ -342,7 +363,7 @@ class AppPurchase private constructor() {
             },
             onComplete = {
                 AppLogger.d(TAG, "updatePurchaseStatus: completed")
-                updatePurchaseListener?.onUpdateFinished()
+                if (notifyListener) updatePurchaseListener?.onUpdateFinished()
             }
         )
     }
@@ -506,6 +527,7 @@ class AppPurchase private constructor() {
     companion object {
         private const val TAG = "GMA_Purchase"
         private const val DEFAULT_BILLING_LISTENER_TIMEOUT_MS = 5_000
+        private const val FOREGROUND_REFRESH_INTERVAL_MS = 60_000L
         const val PRODUCT_ID_TEST = "android.test.purchased"
 
         @Volatile
