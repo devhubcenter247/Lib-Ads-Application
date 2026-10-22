@@ -35,7 +35,9 @@ object RewardAdManager {
     private const val REWARD_TRANSITION_COVER_DELAY_MS = 250L
     private const val TAG = "RewardAdManager"
 
+    // Premium users never load rewarded ads; the preloader would otherwise keep refilling.
     fun preloadRewardAd(id: String, placementId: Long? = null) = whenAdsReady {
+        if (AppPurchase.getInstance().isPurchased()) return@whenAdsReady
         RewardedAdPreloader.start(id, PreloadConfiguration(AdsManager.getAdRequest(id, placementId)))
     }
 
@@ -43,6 +45,7 @@ object RewardAdManager {
         RewardedAdPreloader.pollAd(id)?.let(::ApRewardAd)
 
     fun preloadRewardInterstitialAd(id: String, placementId: Long? = null) = whenAdsReady {
+        if (AppPurchase.getInstance().isPurchased()) return@whenAdsReady
         RewardedInterstitialAdPreloader.start(
             id,
             PreloadConfiguration(AdsManager.getAdRequest(id, placementId)),
@@ -159,6 +162,7 @@ object RewardAdManager {
         adUnitId: String,
         placementId: Long? = null,
     ) = whenAdsReady {
+        if (AppPurchase.getInstance().isPurchased()) return@whenAdsReady
         RewardedInterstitialAdPreloader.start(
             preloadId,
             PreloadConfiguration(AdsManager.getAdRequest(adUnitId, placementId)),

@@ -613,27 +613,22 @@ override fun onCreate(savedInstanceState: Bundle?) {
 }
 
 private fun onButtonClick() {
-    interstitialHelper.showAd(
-        activity  = this,
-        onNextAction = { navigateToNextScreen() }
+    interstitialHelper.waitLoadAndShow(
+        activity = this,
+        callback = object : InterstitialAdListener {
+            // Fires exactly once: right before the ad shows (the next screen opens behind it),
+            // or when there is no ad to show. Not repeated when the ad is dismissed.
+            override fun onNextAction() = navigateToNextScreen()
+            override fun onDismissed(ad: ApInterstitialAd) { /* ad closed */ }
+        }
     )
 }
 ```
 
-**Observe state (optional):**
-
-```kotlin
-lifecycleScope.launch {
-    interstitialHelper.adState.collect { state ->
-        when (state) {
-            is AdInterstitialState.Loaded   -> enableButton()
-            is AdInterstitialState.Showing  -> disableButton()
-            is AdInterstitialState.Dismissed -> navigateToNextScreen()
-            else -> Unit
-        }
-    }
-}
-```
+`waitLoadAndShow` keeps the loading cover up for at most 8 s by default (`timeoutMs`); a fill
+that arrives later stays cached for the next show. The pause before `show()` is
+`AdSdkConfig.interstitialShowDelayMs` (800 ms by default). A loaded ad the screen never showed
+goes back to the shared preload store when the screen is destroyed.
 
 ---
 

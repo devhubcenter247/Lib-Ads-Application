@@ -4,6 +4,7 @@ import android.os.Looper
 import com.google.android.libraries.ads.mobile.sdk.appopen.AppOpenAd
 import com.google.android.libraries.ads.mobile.sdk.common.AdLoadCallback
 import com.google.android.libraries.ads.mobile.sdk.common.LoadAdError
+import com.lib.ads.gma.ads.billing.AppPurchase
 import com.lib.ads.gma.ads.engine.AdsProvider
 import com.lib.ads.gma.ads.event.AdHealthEvents
 import com.lib.ads.gma.ads.model.AdType
@@ -148,6 +149,10 @@ object AppOpenAdPreload {
     }
 
     private fun loadOne(adUnitId: String, placementId: Long?, callback: AppOpenLoadCallback) {
+        if (AppPurchase.getInstance().isPurchased()) {
+            callback.onFailed(ApAdError("App is purchased"))
+            return
+        }
         val startedAt = AdHealthEvents.now()
         AppOpenAd.load(
             AdsManager.getAdRequest(adUnitId, placementId),

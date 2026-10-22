@@ -6,6 +6,7 @@ import android.content.Context
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
+import com.lib.ads.gma.ads.billing.AppPurchase
 import com.lib.ads.gma.ads.dialog.PrepareLoadingAdsDialog
 import com.lib.ads.gma.ads.engine.AdsProvider
 import com.lib.ads.gma.ads.event.AdHealthEvents
@@ -170,7 +171,15 @@ open class InterstitialAdHelper(
 
     companion object {
         const val AD_TRANSITION_COVER_DELAY = 300L
+
+        /**
+         * Longest a show call keeps the user behind the loading dialog by default. The load itself
+         * keeps going (per-id [InterstitialAdConfig.loadTimeout]) and a late fill stays cached.
+         */
+        const val DEFAULT_BLOCKING_WAIT_MS = 8_000L
     }
+
+    private fun blockingWaitMs(): Long = minOf(config.loadTimeout, DEFAULT_BLOCKING_WAIT_MS)
     private val appContext: Context = context.applicationContext
     private val defaultActivity: Activity? = context as? Activity
 
@@ -178,6 +187,10 @@ open class InterstitialAdHelper(
     private data class LoadedInterstitial(val adUnitId: String, val ad: InterstitialAd)
 
     private var interstitialAdLocal: InterstitialAd? = null
+    /** Load time of an ad this helper owns (loaded here or taken from the store); null for an app-supplied one. */
+    private var localAdLoadedAtMs: Long? = null
+    /** The ad handed to show(); it must not be offered back to the store. */
+    private var showingAd: InterstitialAd? = null
     private var loadedAdUnitId: String? = null
     private val listAdCallback: CopyOnWriteArrayList<InterstitialAdListener> = CopyOnWriteArrayList()
     private val loadWaiters = CopyOnWriteArrayList<(Boolean) -> Unit>()
@@ -221,6 +234,8 @@ open class InterstitialAdHelper(
                 is InterstitialAdParam.Ready -> {
                     flagActive.compareAndSet(false, true)
                     interstitialAdLocal = param.interstitialAd
+                    // The app still holds this ad: never offer it to the store, it could be shown twice.
+                    localAdLoadedAtMs = null
                     notifyLoadWaiters(true)
                 }
                 is InterstitialAdParam.Show -> {
@@ -241,6 +256,14 @@ open class InterstitialAdHelper(
         flagActive.compareAndSet(true, false)
         loadingJob?.cancel()
         loadingJob = null
+        // A loaded ad this screen never showed goes back to the shared store instead of being lost.
+        val ownedLoadedAt = localAdLoadedAtMs
+        val unshown = interstitialAdLocal?.takeIf { it !== showingAd }
+        if (unshown != null && ownedLoadedAt != null && !AppPurchase.getInstance().isPurchased()) {
+            val weight = config.weightedAdUnits().firstOrNull { it.adUnitId == unshown.adUnitId }?.weight ?: 0f
+            InterstitialAdPreload.offer(unshown.adUnitId, weight, ApInterstitialAd(unshown), ownedLoadedAt)
+        }
+        localAdLoadedAtMs = null
         interstitialAdLocal = null
         loadedAdUnitId = null
         pendingShowGate?.cancel()
@@ -265,6 +288,7 @@ open class InterstitialAdHelper(
 
                 if (result != null) {
                     interstitialAdLocal = result.ad
+                    localAdLoadedAtMs = System.currentTimeMillis()
                     loadedAdUnitId = result.adUnitId
                     invokeAdListener { it.onLoaded(ApInterstitialAd(result.ad)) }
                     notifyLoadWaiters(true)
@@ -334,6 +358,7 @@ open class InterstitialAdHelper(
         val cachedWrapper = preloaded ?: FullScreenAdLruCache.pollInterstitial(tag)
         val cached = cachedWrapper?.interstitialAd ?: return false
         interstitialAdLocal = cached
+        localAdLoadedAtMs = cachedWrapper.loadedAtMs
         loadedAdUnitId = cached.adUnitId
         notifyLoadWaiters(true)
         invokeAdListener { it.onLoaded(ApInterstitialAd(cached)) }
@@ -458,16 +483,21 @@ open class InterstitialAdHelper(
                 }
             }
 
+            // App-wide state is reset on main, not in the screen's lifecycleScope: the caller usually
+            // finishes the screen in onNextAction (before show()), which cancels that scope, and the
+            // full-screen flag then stayed true and blocked app-open resume for the whole session.
             override fun onAdDismissedFullScreenContent() {
-                scope.launch {
-                    logZ("onAdDismissedFullScreenContent")
+                AdsProvider.runOnMain {
                     waitingDialog.dismissSafely()
                     AdsProvider.getInstance().setFullScreenAdShowing(false)
                     dismissLoadingDialog()
                     interstitialAdLocal = null
+                    showingAd = null
                     loadedAdUnitId = null
-
-                    invokeAdListener { it.onNextAction() }
+                }
+                scope.launch {
+                    logZ("onAdDismissedFullScreenContent")
+                    // onNextAction already fired right before show(); firing it again here navigated twice.
                     invokeAdListener { it.onDismissed(ApInterstitialAd(interstitialAd)) }
                     unregisterOneShot(oneShotCallback)
 
@@ -479,39 +509,44 @@ open class InterstitialAdHelper(
 
             override fun onAdFailedToShowFullScreenContent(fullScreenContentError: FullScreenContentError) {
                 AdHealthEvents.showFailed(AdType.INTERSTITIAL, adUnitId.orEmpty(), fullScreenContentError.message)
-                scope.launch {
-                    logZ("onAdFailedToShowFullScreenContent: ${fullScreenContentError.message}")
+                AdsProvider.runOnMain {
                     waitingDialog.dismissSafely()
                     AdsProvider.getInstance().setFullScreenAdShowing(false)
                     dismissLoadingDialog()
                     interstitialAdLocal = null
+                    showingAd = null
                     loadedAdUnitId = null
+                }
+                scope.launch {
+                    logZ("onAdFailedToShowFullScreenContent: ${fullScreenContentError.message}")
+                    // Only reachable after show(), i.e. after onNextAction already fired.
                     invokeAdListener { it.onFailedToShow(ApAdError(fullScreenContentError)) }
-                    invokeAdListener { it.onNextAction() }
                     unregisterOneShot(oneShotCallback)
                 }
             }
 
+            // Tracking runs on the SDK thread (rule 1) and must not depend on the screen still being
+            // alive: inside lifecycleScope the revenue of an ad shown over a finished screen was lost.
             override fun onAdClicked() {
+                logZ("onAdClicked")
+                AdsLogEventManager.logClickAdsEvent(appCtx, adUnitId)
                 scope.launch {
-                    logZ("onAdClicked")
-                    AdsLogEventManager.logClickAdsEvent(appCtx, adUnitId)
                     invokeAdListener { it.onClicked(ApInterstitialAd(interstitialAd)) }
                 }
             }
 
             override fun onAdImpression() {
+                logZ("onAdImpression")
+                AdsLogEventManager.onTrackImpression(appCtx)
                 scope.launch {
-                    logZ("onAdImpression")
-                    AdsLogEventManager.onTrackImpression(appCtx)
                     invokeAdListener { it.onImpression(ApInterstitialAd(interstitialAd)) }
                 }
             }
 
             override fun onAdPaid(value: AdValue) {
+                logZ("onAdPaid: ${value.valueMicros}")
+                AdsLogEventManager.logPaidAdImpression(appCtx, value, interstitialAd, AdType.INTERSTITIAL)
                 scope.launch {
-                    logZ("onAdPaid: ${value.valueMicros}")
-                    AdsLogEventManager.logPaidAdImpression(appCtx, value, interstitialAd, AdType.INTERSTITIAL)
                     invokeAdListener { it.onPaid(value) }
                 }
             }
@@ -523,8 +558,9 @@ open class InterstitialAdHelper(
             }
         }
 
-        delay(800.milliseconds)
+        delay(AdsProvider.getInstance().interstitialShowDelayMs().milliseconds)
         if (activity.isFinishing || activity.isDestroyed || !isAppInForeground()) {
+            // The ad stays in interstitialAdLocal: shown on a later attempt or offered back on destroy.
             logZ("showAd: Activity is no longer able to show an interstitial")
             waitingDialog.dismissSafely()
             AdsProvider.getInstance().setFullScreenAdShowing(false)
@@ -535,6 +571,7 @@ open class InterstitialAdHelper(
         }
         try {
             invokeAdListener { it.onNextAction() }
+            showingAd = interstitialAd
             interstitialAd.show(activity)
         } catch (e: Exception) {
             logZ("showAd: failed to show interstitial ad: ${e.message}")
@@ -542,6 +579,7 @@ open class InterstitialAdHelper(
             AdsProvider.getInstance().setFullScreenAdShowing(false)
             dismissLoadingDialog()
             interstitialAdLocal = null
+            showingAd = null
             loadedAdUnitId = null
             invokeAdListener { it.onFailedToShow(ApAdError(e.message ?: "Failed to show ad")) }
             unregisterOneShot(oneShotCallback)
@@ -553,7 +591,7 @@ open class InterstitialAdHelper(
 
         scope.launch {
             if (!isAdLoaded() && loadingJob?.isActive == true) {
-                awaitLoadResult(config.loadTimeout)
+                awaitLoadResult(blockingWaitMs())
             }
             if (isAdLoaded()) {
                 showAd(activity = activity, interstitialAd = interstitialAd,callback)
@@ -567,7 +605,7 @@ open class InterstitialAdHelper(
     fun waitLoadAndShow(
         activity: Activity,
         enabled: Boolean = true,
-        timeoutMs: Long = config.loadTimeout,
+        timeoutMs: Long = blockingWaitMs(),
         showWhenReturnFromBackground: Boolean = true,
         callback: InterstitialAdListener? = null,
     ) {
@@ -635,7 +673,8 @@ open class InterstitialAdHelper(
         return interstitialAdLocal != null
     }
 
-    fun getLoadedAd(): InterstitialAd? = interstitialAdLocal
+    // The caller may show the ad itself, so it is no longer offered to the store on destroy.
+    fun getLoadedAd(): InterstitialAd? = interstitialAdLocal.also { localAdLoadedAtMs = null }
 
     private fun showLoadingDialog(activity: Activity) {
         try {

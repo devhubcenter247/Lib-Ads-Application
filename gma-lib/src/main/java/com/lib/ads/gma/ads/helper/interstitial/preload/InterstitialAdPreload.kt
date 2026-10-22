@@ -89,6 +89,10 @@ object InterstitialAdPreload {
     @JvmStatic
     fun isBlocked(configKey: String): Boolean = AdConfigKeyBlocklist.isBlocked(configKey)
 
+    /** Takes back an ad that was loaded but never shown (e.g. its screen closed) so another placement can show it. */
+    internal fun offer(adUnitId: String, weight: Float, ad: ApInterstitialAd, loadedAtMs: Long = ad.loadedAtMs) =
+        store.put(adUnitId, weight, ad, loadedAtMs)
+
     @JvmStatic
     fun release(adUnitId: String) = store.release(adUnitId)
 

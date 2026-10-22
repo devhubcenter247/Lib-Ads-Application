@@ -85,6 +85,12 @@ class AdSdkConfig(
     var logTotalRevenueEachImpression: Boolean = true
 
     /**
+     * Pause between putting up the loading cover and calling `show()` on an interstitial. Lower it
+     * to show faster; the cover hides the screen transition behind the ad.
+     */
+    var interstitialShowDelayMs: Long = 800L
+
+    /**
      * Opt-in ad health events to Firebase (and AppsFlyer when listed in its events):
      * `ad_load_time` per request, `ad_load_failed`, `ad_show_failed`. Useful to tune waterfall
      * timeouts and watch fill rate; adds roughly one event per ad request.

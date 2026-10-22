@@ -82,6 +82,9 @@ open class AdsProvider private constructor() {
 
     fun isMobileAdsReady() = mobileAdsReady.isCompleted
 
+    internal fun interstitialShowDelayMs(): Long =
+        (adConfigOrNull?.interstitialShowDelayMs ?: 800L).coerceAtLeast(0L)
+
     /** Suspends until GMA initialization completes, returning false on timeout. */
     suspend fun awaitReadySuspend(timeoutMs: Long = 15_000L): Boolean {
         if (mobileAdsReady.isCompleted) return true
@@ -190,9 +193,11 @@ open class AdsProvider private constructor() {
         }
         // Attribution SDKs start on the caller's (main) thread, not on the IO coroutine below.
         initAttribution(application, config)
+        // On the caller's thread: these lateinit fields are read on main (isConfigured(), adConfig)
+        // and writing them from the IO coroutine gave no visibility guarantee.
+        configure(application, config)
 
         initializationScope.launch {
-            configure(application, config)
             initAdsNetwork {
                 onReady?.invoke()
             }

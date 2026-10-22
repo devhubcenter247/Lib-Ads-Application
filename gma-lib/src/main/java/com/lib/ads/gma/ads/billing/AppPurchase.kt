@@ -3,6 +3,8 @@ package com.lib.ads.gma.ads.billing
 import android.app.Activity
 import android.app.Application
 import com.lib.ads.gma.ads.engine.AdsProvider
+import com.lib.ads.gma.ads.engine.whenAdsReady
+import com.lib.ads.gma.ads.manager.AdsManager
 import com.lib.ads.gma.ads.util.AppUtil
 import com.lib.ads.gma.ads.util.AppLogger
 import com.lib.ads.gma.ads.util.SharePreferenceUtils
@@ -204,6 +206,12 @@ class AppPurchase private constructor() {
         repository = repo
         verifier = vfy
         connectionManager = connMgr
+        // Becoming premium (purchase, restore or the cached entitlement) stops ad preloading.
+        scope.launch {
+            vfy.isPurchasedFlow().collect { purchased ->
+                if (purchased) whenAdsReady(AdsManager::releasePreloadsForPremium)
+            }
+        }
 
         val proc = PurchaseProcessor(
             context = application,
