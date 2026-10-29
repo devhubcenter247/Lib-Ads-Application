@@ -40,6 +40,8 @@ import com.lib.ads.gma.ads.helper.adnative.NativeAds
 import com.lib.ads.gma.ads.helper.adnative.NativeAdSpec
 import com.lib.ads.gma.ads.helper.adnative.PreloadBufferState
 import com.google.android.libraries.ads.mobile.sdk.common.LoadAdError
+import com.google.android.libraries.ads.mobile.sdk.nativead.NativeAdView
+import com.lib.ads.gma.ads.manager.NativeAdManager
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -134,6 +136,18 @@ class NativeAdHolderConfig internal constructor(
 
     fun unregisterAdCallback(adCallback: NativeAdListener) {
         adCallbacks.remove(adCallback)
+    }
+
+    /**
+     * Binds the ad this holder is showing into a [NativeAdView] of your own layout (XML or any
+     * custom UI) — see [NativeAdManager.bindNativeAdView] for the asset ids. Use this rather than
+     * binding the ad yourself: it keeps the holder's impression/click tracking, which decides when
+     * the ad may be replaced. Returns false when there is no ad to bind.
+     */
+    fun bindTo(adView: NativeAdView): Boolean {
+        val nativeAd = (ad ?: displayedAd)?.nativeAd ?: return false
+        NativeAdManager.bindNativeAdView(nativeAd, adView, callbackRelay)
+        return true
     }
 
     /**

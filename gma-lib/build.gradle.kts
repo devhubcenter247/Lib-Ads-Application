@@ -72,7 +72,7 @@ dependencies {
     implementation("androidx.legacy:legacy-support-v4:1.0.0")
 
     // Google Mobile Ads Next-Gen SDK
-    api("com.google.android.libraries.ads.mobile.sdk:ads-mobile-sdk:1.4.0")
+    api("com.google.android.libraries.ads.mobile.sdk:ads-mobile-sdk:1.5.0")
     api("com.google.android.gms:play-services-ads-identifier:18.3.0")
     api("com.google.android.gms:play-services-appset:16.1.0")
     api("com.google.android.gms:play-services-basement:18.11.0")
@@ -92,11 +92,9 @@ dependencies {
     api("com.facebook.android:facebook-android-sdk:18.2.3")
 
     // Mediation Adapters
-    api("com.google.ads.mediation:facebook:6.21.0.2")
-    api("com.facebook.android:audience-network-sdk:6.21.0")
-    api("com.google.ads.mediation:mintegral:17.1.51.0")
-    api("com.google.ads.mediation:pangle:8.0.0.4.0")
-    api("com.google.ads.mediation:unity:4.17.0.0")
+    api("com.google.ads.mediation:unity:4.21.0.0")
+    api("com.unity3d.ads:unity-ads:4.21.0")
+    api("com.google.ads.mediation:ironsource:9.6.1.0")
 
     // UI Libraries
     implementation("com.airbnb.android:lottie:6.7.1")
@@ -153,19 +151,20 @@ afterEvaluate {
                 from(components["release"])
                 groupId = "com.lib"
                 artifactId = "gmasdk"
-                version = "1.2.4"
+                version = "1.0.0"
             }
         }
         repositories {
-            val gprUser = providers.gradleProperty("gpr.user").orNull ?: System.getenv("GITHUB_ACTOR")
-            val gprKey = providers.gradleProperty("gpr.key").orNull ?: System.getenv("GITHUB_TOKEN")
+            val gprUser = providers.gradleProperty("devCenter").orNull ?: System.getenv("GITHUB_ACTOR")
+            val gprKey = providers.gradleProperty("devGhpKey").orNull ?: System.getenv("GITHUB_TOKEN")
             maven {
                 name = "GitHubPackages"
-                url = uri("https://maven.pkg.github.com/dbv0610/AdsApplication")
+                url = uri("https://maven.pkg.github.com/devhubcenter247/Lib-Ads-Application")
                 credentials {
                     username = gprUser
                     password = gprKey
                 }
+                content { includeGroup("com.lib") }
             }
         }
     }

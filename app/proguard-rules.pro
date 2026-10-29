@@ -31,6 +31,4 @@
 
 -dontwarn com.facebook.infer.annotation.**
 -dontwarn com.appsflyer.internal.AFj1ySDK$Companion
--dontwarn com.bytedance.sdk.openadsdk.core.model.NetExtParams$RenderType
--dontwarn com.bytedance.sdk.openadsdk.core.settings.TTSdkSettings$FETCH_REQUEST_SOURCE
 -dontwarn org.jetbrains.annotations.**

@@ -150,6 +150,7 @@ class MainActivity : BaseActivity() {
             onOpenPictureInPicture = {
                 startActivity(Intent(this@MainActivity, PictureInPictureActivity::class.java))
             },
+            onOpenXmlAds = { XmlAdsActivity.start(this@MainActivity) },
             onResetFeatures = { FeatureActivity.listFeatureSelect.clear() },
         )
     }
@@ -178,6 +179,7 @@ private fun MainDemoScreen(
     onOpenSplash: () -> Unit,
     onOpenNativeSplash: () -> Unit,
     onOpenPictureInPicture: () -> Unit,
+    onOpenXmlAds: () -> Unit,
     onResetFeatures: () -> Unit,
 ) {
     val hazeState = rememberHazeState()
@@ -207,6 +209,7 @@ private fun MainDemoScreen(
             "Floating ad that stays above app content",
             onOpenPictureInPicture
         ),
+        DemoAction("XML ads", "Native & banner in View-based layouts", onOpenXmlAds),
     )
 
     Box(Modifier.fillMaxSize()) {
@@ -321,6 +324,7 @@ private fun MainDemoScreenPreview() {
             onOpenSplash = {},
             onOpenNativeSplash = {},
             onOpenPictureInPicture = {},
+            onOpenXmlAds = {},
             onResetFeatures = {},
         )
     }

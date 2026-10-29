@@ -89,6 +89,15 @@ object InterstitialAdPreload {
     @JvmStatic
     fun isBlocked(configKey: String): Boolean = AdConfigKeyBlocklist.isBlocked(configKey)
 
+    /**
+     * Returns a loaded but unshown ad to the shared pool (screen closed, load finished after a
+     * timeout or cancel), so the next placement that uses [adUnitId] shows it instead of the fill
+     * being wasted. The pool's TTL still applies from [loadedAtMs].
+     */
+    @JvmStatic
+    fun offer(adUnitId: String, ad: ApInterstitialAd, loadedAtMs: Long = System.currentTimeMillis()) =
+        store.put(adUnitId, 0f, ad, loadedAtMs)
+
     @JvmStatic
     fun release(adUnitId: String) = store.release(adUnitId)
 

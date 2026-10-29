@@ -1,6 +1,9 @@
 package com.lib.ads.gma.ads.helper.banner
 
+import android.content.Context
 import android.view.View
+import com.google.android.libraries.ads.mobile.sdk.banner.AdView
+import kotlin.math.roundToInt
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import androidx.lifecycle.Lifecycle
@@ -73,6 +76,8 @@ fun BannerAdHolder.bindToContainer(
     val shimmer = container.findViewById<View>(R.id.shimmer_container_banner)
     val dividerPx = container.resources.getDimensionPixelOffset(R.dimen._1sdp)
     val holder = this
+    // Reserve the banner's height up front so loading -> filled does not shift the layout.
+    container.minimumHeight = reservedHeightPx(container.context) + dividerPx
     return owner.lifecycleScope.launch {
         combine(state, lastError) { state, error -> state to error }.collect { (state, error) ->
             val tester = AdsProvider.getInstance().adConfigOrNull?.showMessageForTester == true
@@ -117,6 +122,47 @@ fun BannerAdHolder.bindToContainer(
         }
     }
 }
+
+/** [BannerAdHolder.loadingHeightDp] in pixels: the height to reserve for this holder's banner. */
+fun BannerAdHolder.reservedHeightPx(context: Context): Int =
+    (loadingHeightDp * context.resources.displayMetrics.density).roundToInt()
+
+/**
+ * For a UI you build yourself: calls [onAdView] on the main thread with every new banner this
+ * holder gets, and with `null` once it has nothing to show (load failed, cancelled), until [owner]
+ * is destroyed. Give your container [reservedHeightPx] up front so the layout does not jump, then
+ * attach the view (detach it from any previous parent first).
+ *
+ * ```
+ * binding.bannerFrame.minimumHeight = holder.reservedHeightPx(requireContext())
+ * holder.observeAdView(viewLifecycleOwner) { adView ->
+ *     binding.bannerFrame.removeAllViews()
+ *     if (adView == null) { binding.bannerFrame.isVisible = false; return@observeAdView }
+ *     (adView.parent as? ViewGroup)?.removeView(adView)
+ *     binding.bannerFrame.addView(adView)
+ * }
+ * ```
+ */
+fun BannerAdHolder.observeAdView(owner: LifecycleOwner, onAdView: (AdView?) -> Unit): Job =
+    owner.lifecycleScope.launch {
+        var delivered: AdView? = null
+        var deliveredEmpty = false
+        state.collect { current ->
+            when (current) {
+                is BannerAdDisplayState.Loaded -> if (current.adView !== delivered) {
+                    delivered = current.adView
+                    deliveredEmpty = false
+                    onAdView(current.adView)
+                }
+                is BannerAdDisplayState.Error, BannerAdDisplayState.Cancelled -> if (!deliveredEmpty) {
+                    delivered = null
+                    deliveredEmpty = true
+                    onAdView(null)
+                }
+                else -> Unit
+            }
+        }
+    }
 
 /**
  * Creates a banner holder that consumes the cached ad registered under [tag]. If the tag has not

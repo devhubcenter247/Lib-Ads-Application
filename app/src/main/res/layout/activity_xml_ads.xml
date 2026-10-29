@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#FFFFFF"
+    android:fitsSystemWindows="true"
+    android:orientation="vertical">
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="XML ads demo"
+                android:textColor="#111827"
+                android:textSize="22sp"
+                android:textStyle="bold" />
+
+            <!-- 1. Native, custom layout: holder.observeAd + holder.bindTo -->
+            <TextView
+                style="@style/XmlAdsSectionTitle"
+                android:text="1. Native — layout tự dựng (observeAd + bindTo)" />
+
+            <TextView
+                android:id="@+id/native_custom_status"
+                style="@style/XmlAdsStatus" />
+
+            <FrameLayout
+                android:id="@+id/native_custom_frame"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
+            <!-- 2. Native, layoutId = 0: library default layout -->
+            <TextView
+                style="@style/XmlAdsSectionTitle"
+                android:text="2. Native — layoutId = 0 (layout mặc định của lib)" />
+
+            <TextView
+                android:id="@+id/native_default_status"
+                style="@style/XmlAdsStatus" />
+
+            <FrameLayout
+                android:id="@+id/native_default_frame"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
+            <!-- 3. Banner, custom container: observeAdView + reservedHeightPx -->
+            <TextView
+                style="@style/XmlAdsSectionTitle"
+                android:text="3. Banner — container tự dựng (observeAdView)" />
+
+            <TextView
+                android:id="@+id/banner_custom_status"
+                style="@style/XmlAdsStatus" />
+
+            <FrameLayout
+                android:id="@+id/banner_custom_frame"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="#F3F4F6" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="400dp"
+                android:layout_marginTop="16dp"
+                android:background="#F9FAFB" />
+        </LinearLayout>
+    </ScrollView>
+
+    <!-- 4. Banner anchored at the bottom: bindToContainer reserves the height -->
+    <TextView
+        android:id="@+id/banner_lib_status"
+        style="@style/XmlAdsStatus"
+        android:paddingHorizontal="16dp" />
+
+    <FrameLayout
+        android:id="@+id/banner_lib_container"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#F3F4F6">
+
+        <View
+            android:id="@id/shimmer_container_banner"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="#E5E7EB" />
+    </FrameLayout>
+</LinearLayout>

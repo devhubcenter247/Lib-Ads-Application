@@ -14,7 +14,8 @@ class BannerAdSpec(
     val adUnitIds: List<String>,
     val placementId: Long? = null,
     val bufferSize: Int = 1,
-    val ttlMs: Long = TimeUnit.HOURS.toMillis(4),
+    /** How long a cached banner may wait before it is dropped; stale fills rarely record an impression. */
+    val ttlMs: Long = TimeUnit.HOURS.toMillis(1),
     val size: BannerSize = BannerSize.LargePortraitAdaptive,
     val collapsibleGravity: BannerCollapseGravity? = null,
 ) {

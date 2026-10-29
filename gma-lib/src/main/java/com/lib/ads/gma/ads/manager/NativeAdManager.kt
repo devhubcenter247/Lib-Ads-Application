@@ -6,7 +6,8 @@ import android.content.Context
 import android.os.SystemClock
 import android.util.Log
 import android.view.LayoutInflater
-import android.widget.Button
+import android.view.View
+import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.RatingBar
@@ -187,30 +188,84 @@ object NativeAdManager {
         )
     }
 
+    /** Layout inflated when a caller leaves the native layout id at 0. */
+    @JvmField
+    val DEFAULT_NATIVE_LAYOUT: Int = R.layout.custom_native_admod_medium
+
     fun populateNativeAdView(activity: Activity, ad: ApNativeAd, placeholder: FrameLayout, shimmer: ShimmerFrameLayout?, listener: NativeAdListener? = null) {
-        if (ad.nativeAd == null && ad.nativeView == null) {
-            shimmer?.visibility = android.view.View.GONE
+        val nativeAd = ad.nativeAd
+        val prebuiltView = ad.nativeView
+        if (nativeAd == null && prebuiltView == null) {
+            shimmer?.visibility = View.GONE
             Log.e(TAG, "populateNativeAdView failed: native is not loaded")
             return
         }
-        val adView = LayoutInflater.from(activity).inflate(ad.layoutCustomNative, null) as NativeAdView
-        shimmer?.stopShimmer(); shimmer?.visibility = android.view.View.GONE
-        placeholder.removeAllViews(); placeholder.addView(adView); placeholder.visibility = android.view.View.VISIBLE
-        ad.nativeAd?.let { bindNativeAdView(it, adView, listener) }
+        val adView: View = if (nativeAd == null) {
+            // Already rendered elsewhere: show it as is.
+            prebuiltView!!.also { (it.parent as? ViewGroup)?.removeView(it) }
+        } else {
+            val layout = ad.layoutCustomNative.takeIf { it != 0 } ?: DEFAULT_NATIVE_LAYOUT
+            val inflated = LayoutInflater.from(activity).inflate(layout, placeholder, false)
+            if (inflated !is NativeAdView) {
+                shimmer?.visibility = View.GONE
+                Log.e(TAG, "populateNativeAdView failed: root of layout $layout must be a NativeAdView")
+                return
+            }
+            bindNativeAdView(nativeAd, inflated, listener)
+            inflated
+        }
+        shimmer?.stopShimmer(); shimmer?.visibility = View.GONE
+        placeholder.removeAllViews(); placeholder.addView(adView); placeholder.visibility = View.VISIBLE
     }
 
-    /** Binds a loaded native object to a view supplied by the helper, and wires click/impression/paid-event analytics. */
+    /**
+     * Fills [adView] with [nativeAd]'s assets and registers it, for a layout of your own design.
+     * Asset views you already assigned on [adView] (`headlineView`, `bodyView`, ...) are used as is;
+     * the rest are looked up by the library's ids (`ad_headline`, `ad_body`, `ad_call_to_action`,
+     * `ad_app_icon`, `ad_advertiser`, `ad_price`, `ad_store`, `ad_stars`, `ad_media`). An asset the ad
+     * does not have hides its view (GONE). Also wires click/impression/paid analytics to [listener].
+     */
+    @JvmStatic
+    @JvmOverloads
     fun bindNativeAdView(nativeAd: NativeAd, adView: NativeAdView, listener: NativeAdListener? = null) {
-        adView.advertiserView = adView.findViewById<TextView>(R.id.ad_advertiser)
-        adView.bodyView = adView.findViewById<TextView>(R.id.ad_body)
-        adView.callToActionView = adView.findViewById<Button>(R.id.ad_call_to_action)
-        adView.headlineView = adView.findViewById<TextView>(R.id.ad_headline)
-        adView.iconView = adView.findViewById<ImageView>(R.id.ad_app_icon)
-        adView.priceView = adView.findViewById<TextView>(R.id.ad_price)
-        adView.starRatingView = adView.findViewById<RatingBar>(R.id.ad_stars)
-        val mediaView = adView.findViewById<MediaView>(R.id.ad_media)
+        adView.headlineView = adView.headlineView ?: adView.findViewById(R.id.ad_headline)
+        adView.bodyView = adView.bodyView ?: adView.findViewById(R.id.ad_body)
+        adView.callToActionView = adView.callToActionView ?: adView.findViewById(R.id.ad_call_to_action)
+        adView.iconView = adView.iconView ?: adView.findViewById(R.id.ad_app_icon)
+        adView.advertiserView = adView.advertiserView ?: adView.findViewById(R.id.ad_advertiser)
+        adView.priceView = adView.priceView ?: adView.findViewById(R.id.ad_price)
+        adView.storeView = adView.storeView ?: adView.findViewById(R.id.ad_store)
+        adView.starRatingView = adView.starRatingView ?: adView.findViewById(R.id.ad_stars)
+        val mediaView = adView.mediaView ?: adView.findViewById<MediaView>(R.id.ad_media)
+
+        bindText(adView.headlineView, nativeAd.headline)
+        bindText(adView.bodyView, nativeAd.body)
+        bindText(adView.callToActionView, nativeAd.callToAction)
+        bindText(adView.advertiserView, nativeAd.advertiser)
+        bindText(adView.priceView, nativeAd.price)
+        bindText(adView.storeView, nativeAd.store)
+        (adView.iconView as? ImageView)?.let { icon ->
+            val drawable = nativeAd.icon?.drawable
+            icon.setImageDrawable(drawable)
+            icon.visibility = if (drawable != null) View.VISIBLE else View.GONE
+        }
+        (adView.starRatingView as? RatingBar)?.let { stars ->
+            val rating = nativeAd.starRating
+            if (rating != null) stars.rating = rating.toFloat()
+            stars.visibility = if (rating != null) View.VISIBLE else View.GONE
+        }
         adView.registerNativeAd(nativeAd, mediaView)
         bindNativeAdEventCallback(adView.context, nativeAd, listener)
+    }
+
+    private fun bindText(view: View?, value: String?) {
+        if (view == null) return
+        if (value.isNullOrBlank()) {
+            view.visibility = View.GONE
+            return
+        }
+        (view as? TextView)?.text = value
+        view.visibility = View.VISIBLE
     }
 
     /**

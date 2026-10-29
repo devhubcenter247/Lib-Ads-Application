@@ -13,7 +13,8 @@ class NativeAdSpec(
     val canShowAds: Boolean = true,
     val canReloadAds: Boolean = true,
     val bufferSize: Int = 1,
-    val ttlMs: Long = TimeUnit.HOURS.toMillis(4),
+    /** How long a buffered ad may wait before it is dropped; Google advises showing natives within 1 hour of load. */
+    val ttlMs: Long = TimeUnit.HOURS.toMillis(1),
     val timeoutsMs: List<Long> = emptyList(),
     /** Request settings (AdChoices, media ratio, video, ad types...) used by this tag's preloads. */
     val requestOptions: NativeAdRequestOptions = NativeAdRequestOptions(),

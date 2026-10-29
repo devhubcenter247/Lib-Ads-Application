@@ -157,6 +157,7 @@ internal class NativePreloadRequestController(
         previousAd: NativeAdDisplayState.Success?,
     ) {
         lastError.value = null
+        NativeAds.markLoaded(ad)
         bindAdCallback(ad)
         callbackRelay.onLoaded(ad)
         previousAd?.let { old -> runCatching { old.ad.nativeAd?.destroy() } }

@@ -15,6 +15,7 @@ import com.lib.ads.gma.ads.dialog.PrepareLoadingAdsDialog
 import com.lib.ads.gma.ads.engine.AdsProvider
 import com.lib.ads.gma.ads.engine.whenAdsReady
 import com.lib.ads.gma.ads.event.AdsLogEventManager
+import com.lib.ads.gma.ads.helper.appopen.AppOpenManager
 import com.lib.ads.gma.ads.helper.canRequestFullScreenAds
 import com.lib.ads.gma.ads.helper.fullscreen.dismissSafely
 import com.lib.ads.gma.ads.helper.fullscreen.isAppInForeground
@@ -38,6 +39,10 @@ object AppOpenAdManager {
     private var timeoutRunnable: Runnable? = null
     private var readyRunnable: Runnable? = null
     private var pollRunnable: Runnable? = null
+
+    // One handler for every splash timer: Handler.removeCallbacks only removes runnables posted
+    // through the same Handler instance, so a fresh Handler could never cancel them.
+    private val handler = Handler(Looper.getMainLooper())
     private var loadingAdsDialog: PrepareLoadingAdsDialog? = null
     private var showing = false
 
@@ -80,7 +85,6 @@ object AppOpenAdManager {
 
         val startedAt = System.currentTimeMillis()
         var finished = false
-        val handler = Handler(Looper.getMainLooper())
 
         timeoutRunnable = Runnable {
             finished = true
@@ -90,7 +94,13 @@ object AppOpenAdManager {
         if (timeOut > 0) handler.postDelayed(timeoutRunnable!!, timeOut)
 
         fun onAdReady(ad: AppOpenAd) {
-            if (finished) return
+            if (finished) {
+                // The splash already moved on; keep the matched ad for the next app resume.
+                AppOpenManager.getInstance().offerResumeAd(ad)
+                return
+            }
+            timeoutRunnable?.let(handler::removeCallbacks)
+            timeoutRunnable = null
             openAdLoaded = ad
             FullScreenAdLruCache.put(tag, ad)
             val remaining = timeDelay - (System.currentTimeMillis() - startedAt)
@@ -101,7 +111,13 @@ object AppOpenAdManager {
         val poll = Runnable {
             if (finished) return@Runnable
             fun load(index: Int) {
-                if (index >= ids.size) { if (!finished) listener.onNextAction(); return }
+                if (index >= ids.size) {
+                    if (finished) return
+                    finished = true
+                    clearTimers()
+                    listener.onNextAction()
+                    return
+                }
                 AppOpenAd.load(AdsManager.getAdRequest(ids[index], placementId, skipUninitializedAdapters), object : AdLoadCallback<AppOpenAd> {
                     override fun onAdLoaded(ad: AppOpenAd) = onAdReady(ad)
                     override fun onAdFailedToLoad(adError: LoadAdError) { load(index + 1) }
@@ -243,6 +259,7 @@ object AppOpenAdManager {
         CoroutineScope(Dispatchers.Main.immediate).launch {
             delay(delayMs.milliseconds)
             if (openAdLoaded != null && !showing) {
+                clearTimers()
                 val ad = openAdLoaded!!
                 openAdLoaded = null
                 FullScreenAdLruCache.clear(DEFAULT_TAG)
@@ -253,6 +270,7 @@ object AppOpenAdManager {
 
     /** Shows the ad loaded by [loadSplashAppOpenAd]/[loadSplashAppOpenAds]; if none is ready (called too early, load failed, or already shown), continues the flow via [AppOpenAdListener.onNextAction] instead of crashing. */
     fun showSplashAppOpen(activity: Activity, listener: AppOpenAdListener, tag: String = DEFAULT_TAG) {
+        clearTimers()
         val ad = FullScreenAdLruCache.pollAppOpen(tag) ?: openAdLoaded ?: run { listener.onNextAction(); return }
         openAdLoaded = null
         showAd(activity, appOpenAd = ad, listener, loadingAdsDialog)
@@ -275,7 +293,6 @@ object AppOpenAdManager {
     }
 
     private fun clearTimers() {
-        val handler = Handler(Looper.getMainLooper())
         timeoutRunnable?.let(handler::removeCallbacks)
         readyRunnable?.let(handler::removeCallbacks)
         pollRunnable?.let(handler::removeCallbacks)

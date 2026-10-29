@@ -9,6 +9,7 @@ import androidx.lifecycle.lifecycleScope
 import com.lib.ads.gma.ads.helper.adnative.NativeAdRequestOptions
 import com.lib.ads.gma.ads.helper.adnative.NativeAds
 import com.lib.ads.gma.ads.helper.utils.AdOptionVisibility
+import com.lib.ads.gma.ads.model.wrapper.ApNativeAd
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -56,6 +57,42 @@ fun createNativeAdHolder(
         }
     }
 }
+
+/**
+ * For a UI you build yourself (XML, custom views): calls [onAd] on the main thread with every new ad
+ * this holder gets, and with `null` once it has nothing to show (load failed, cancelled), until
+ * [owner] is destroyed. Render it with [NativeAdHolderConfig.bindTo] into your own `NativeAdView`.
+ *
+ * ```
+ * holder.observeAd(viewLifecycleOwner) { ad ->
+ *     if (ad == null) { binding.adFrame.isVisible = false; return@observeAd }
+ *     val adView = layoutInflater.inflate(R.layout.my_native, binding.adFrame, false) as NativeAdView
+ *     holder.bindTo(adView)
+ *     binding.adFrame.removeAllViews(); binding.adFrame.addView(adView)
+ * }
+ * ```
+ */
+fun NativeAdHolderConfig.observeAd(owner: LifecycleOwner, onAd: (ApNativeAd?) -> Unit): Job =
+    owner.lifecycleScope.launch {
+        var delivered: ApNativeAd? = null
+        var deliveredEmpty = false
+        state.collect { current ->
+            when (current) {
+                is NativeAdDisplayState.Success -> if (current.ad !== delivered) {
+                    delivered = current.ad
+                    deliveredEmpty = false
+                    onAd(current.ad)
+                }
+                is NativeAdDisplayState.Error, is NativeAdDisplayState.Cancelled ->
+                    if (displayedAd == null && !deliveredEmpty) {
+                        delivered = null
+                        deliveredEmpty = true
+                        onAd(null)
+                    }
+                else -> Unit
+            }
+        }
+    }
 
 /** Builds the holder + request controller. Shared by [createNativeAdHolder] and Compose. */
 internal fun buildNativeAdHolder(

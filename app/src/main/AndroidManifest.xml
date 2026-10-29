@@ -78,6 +78,11 @@
             android:screenOrientation="portrait"
             tools:ignore="DiscouragedApi,LockedOrientationActivity" />
         <activity
+            android:name=".app.gma.XmlAdsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            tools:ignore="DiscouragedApi,LockedOrientationActivity" />
+        <activity
             android:name=".app.gma.PictureInPictureActivity"
             android:exported="false"
             android:screenOrientation="portrait"

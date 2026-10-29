@@ -7,6 +7,7 @@ import android.content.Context
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import android.view.Window
 import androidx.lifecycle.DefaultLifecycleObserver
@@ -17,7 +18,6 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import com.google.android.libraries.ads.mobile.sdk.appopen.AppOpenAd
 import com.google.android.libraries.ads.mobile.sdk.appopen.AppOpenAdEventCallback
 import com.google.android.libraries.ads.mobile.sdk.appopen.AppOpenAdPreloader
-import com.google.android.libraries.ads.mobile.sdk.common.AdActivity
 import com.google.android.libraries.ads.mobile.sdk.common.AdValue
 import com.google.android.libraries.ads.mobile.sdk.common.FullScreenContentError
 import com.google.android.libraries.ads.mobile.sdk.common.PreloadConfiguration
@@ -25,6 +25,7 @@ import com.lib.ads.gma.ads.billing.AppPurchase
 import com.lib.ads.gma.ads.dialog.ResumeLoadingDialog
 import com.lib.ads.gma.ads.engine.AdsProvider
 import com.lib.ads.gma.ads.event.AdsLogEventManager
+import com.lib.ads.gma.ads.helper.canRequestFullScreenAds
 import com.lib.ads.gma.ads.helper.extension.extractAdUnitIdOrNull
 import com.lib.ads.gma.ads.listener.AdResumePreShowListener
 import com.lib.ads.gma.ads.manager.AdsManager
@@ -49,8 +50,12 @@ class AppOpenManager private constructor() : Application.ActivityLifecycleCallba
     private var disableAdResumeByClickAction: Boolean = false
     private val disabledAppOpenList: MutableList<Class<*>> = ArrayList()
 
-    /** Ids for which [AppOpenAdPreloader.start] has already been called; guards duplicate starts. */
-    private val preloadStartedIds: MutableSet<String> = mutableSetOf()
+    /** Ids for which [AppOpenAdPreloader.start] has already been called, with their start time. */
+    private val preloadStartedAt: MutableMap<String, Long> = linkedMapOf()
+
+    /** A matched app-open ad handed over by another flow (e.g. a splash ad that arrived late). */
+    private var spareAd: AppOpenAd? = null
+    private var spareAdLoadedAt: Long = 0L
     private var hasBeenInBackground: Boolean = false
     private var dialog: Dialog? = null
     private var isEnableList: Boolean = false
@@ -60,6 +65,15 @@ class AppOpenManager private constructor() : Application.ActivityLifecycleCallba
     companion object {
         private const val TAG = "AppOpenManager"
         private const val AD_TRANSITION_COVER_DELAY_MS = 250L
+
+        /** Only one resume ad can be shown per foreground, so never buffer more than one. */
+        private const val RESUME_PRELOAD_BUFFER_SIZE = 1
+
+        /** Next waterfall id is preloaded only when the started ones still have no fill after this. */
+        private const val FALLBACK_PRELOAD_AFTER_MS = 30_000L
+
+        /** AdMob app-open ads expire 4 hours after load. */
+        private const val SPARE_AD_MAX_AGE_MS = 4 * 60 * 60 * 1000L
 
         @Volatile
         private var INSTANCE: AppOpenManager? = null
@@ -168,11 +182,8 @@ class AppOpenManager private constructor() : Application.ActivityLifecycleCallba
     }
 
     fun isAdAvailable(): Boolean {
-        val available = if (isEnableList) {
-            appResumeAdIdList.orEmpty().any(AppOpenAdPreloader::isAdAvailable)
-        } else {
-            appResumeAdId?.let(AppOpenAdPreloader::isAdAvailable) ?: false
-        }
+        val available = hasFreshSpareAd() ||
+            resumeAdIds().any { it in preloadStartedAt && AppOpenAdPreloader.isAdAvailable(it) }
         AppLogger.d(TAG, "isAdAvailable => $available")
         return available
     }
@@ -193,9 +204,6 @@ class AppOpenManager private constructor() : Application.ActivityLifecycleCallba
     override fun onActivityResumed(activity: Activity) {
         currentActivityRef = WeakReference(activity)
         Log.d(TAG, "onActivityResumed: $activity")
-        if (activity.javaClass.name != AdActivity::class.java.name) {
-            loadAppOpenResume()
-        }
     }
 
     override fun onActivityStopped(activity: Activity) {
@@ -238,9 +246,8 @@ class AppOpenManager private constructor() : Application.ActivityLifecycleCallba
             }
             return
         }
-        if (!isShowingAd && isAdAvailable() && eligibilityGate?.invoke() != false) {
-            showResumeAds()
-        }
+        if (isShowingAd || eligibilityGate?.invoke() == false) return
+        if (isAdAvailable()) showResumeAds() else startFallbackPreload()
     }
 
     fun setAdResumePreShowListener(listener: AdResumePreShowListener) {
@@ -253,8 +260,8 @@ class AppOpenManager private constructor() : Application.ActivityLifecycleCallba
      * interrupting a first-time user with a full-screen ad before they've seen the app's value;
      * showing too early risks D1 retention). `gma-lib` deliberately does not track "is this a new
      * user" itself — the app owns that definition (session count, install date, ...) and reports
-     * it back via [gate]. Preloading is unaffected: the ad keeps warming in the background via
-     * [AppOpenAdPreloader] regardless of the gate, so it's ready the moment the gate opens.
+     * it back via [gate]. While the gate is closed no resume ad is preloaded either, so a user
+     * who can't see the ad doesn't burn matched requests.
      * Pass `null` (the default) to always allow showing, restoring prior behavior.
      */
     fun setEligibilityGate(gate: (() -> Boolean)?) {
@@ -341,37 +348,99 @@ class AppOpenManager private constructor() : Application.ActivityLifecycleCallba
         super.onStop(owner)
         hasBeenInBackground = true
         Log.d(TAG, "onStop: app stop")
+        // Resume ads can only be shown after the app has been in the background, so preloading
+        // starts here rather than at app launch: a user who never leaves the app never loads one.
+        loadAppOpenResume()
+    }
+
+    private fun resumeAdIds(): List<String> =
+        (if (isEnableList) appResumeAdIdList.orEmpty() else listOfNotNull(appResumeAdId))
+            .map(String::trim)
+            .filter(String::isNotEmpty)
+            .distinct()
+
+    private fun canPreloadResumeAd(): Boolean {
+        val app = myApplication ?: return false
+        return isAppResumeEnabled && eligibilityGate?.invoke() != false && canRequestFullScreenAds(app, true)
     }
 
     /**
-     * Starts (or confirms already-started) [AppOpenAdPreloader] preloading for the configured
-     * resume ad id(s). The preloader keeps its own ready-queue and refills it in the background
-     * after every [AppOpenAdPreloader.pollAd] consumes an ad, so unlike the old reactive
-     * `AppOpenAd.load()`-per-resume flow, a fresh ad is far more likely to already be sitting in
-     * the pool the moment [showResumeAds] needs one (e.g. a quick background/foreground flip).
+     * Starts [AppOpenAdPreloader] for the first resume id only, with a one-ad buffer. The preloader
+     * refills itself after every poll and when the ad expires; fallback ids are added lazily by
+     * [startFallbackPreload] so a waterfall doesn't keep one buffered ad per id.
      */
     private fun loadAppOpenResume() {
         AdsProvider.getInstance().runWhenReady {
-            if (isEnableList) {
-                appResumeAdIdList.orEmpty().forEach(::startPreload)
-            } else {
-                appResumeAdId?.takeIf { it.isNotEmpty() }?.let(::startPreload)
+            if (AppPurchase.getInstance().isPurchased()) {
+                stopResumePreloads()
+                return@runWhenReady
             }
+            if (!canPreloadResumeAd()) return@runWhenReady
+            resumeAdIds().firstOrNull()?.let(::startPreload)
         }
+    }
+
+    /** Called when a resume had nothing to show: adds the next id once the started ones had time to fill. */
+    private fun startFallbackPreload() {
+        if (!canPreloadResumeAd()) return
+        val now = SystemClock.elapsedRealtime()
+        val ids = resumeAdIds()
+        val started = ids.filter { it in preloadStartedAt }
+        if (started.isEmpty()) {
+            ids.firstOrNull()?.let(::startPreload)
+            return
+        }
+        val latestStart = started.maxOf { preloadStartedAt.getValue(it) }
+        if (now - latestStart < FALLBACK_PRELOAD_AFTER_MS) return
+        ids.firstOrNull { it !in preloadStartedAt }?.let(::startPreload)
     }
 
     private fun startPreload(id: String) {
-        if (!preloadStartedIds.add(id)) return
-        AppOpenAdPreloader.start(id, PreloadConfiguration(AdsManager.getAdRequest(id, placementId)))
+        if (id in preloadStartedAt) return
+        preloadStartedAt[id] = SystemClock.elapsedRealtime()
+        AppOpenAdPreloader.start(
+            id,
+            PreloadConfiguration(AdsManager.getAdRequest(id, placementId), RESUME_PRELOAD_BUFFER_SIZE),
+        )
     }
 
-    /** Consumes one ready ad from the preloader; returns the first available id in waterfall order. */
-    private fun pollReadyAd(): AppOpenAd? =
-        if (isEnableList) {
-            appResumeAdIdList.orEmpty().firstNotNullOfOrNull(AppOpenAdPreloader::pollAd)
-        } else {
-            appResumeAdId?.let(AppOpenAdPreloader::pollAd)
+    private fun stopResumePreloads() {
+        preloadStartedAt.keys.forEach(AppOpenAdPreloader::destroy)
+        preloadStartedAt.clear()
+        spareAd?.destroy()
+        spareAd = null
+    }
+
+    /**
+     * Keeps an app-open ad that was loaded for another flow but never shown (a splash ad that
+     * arrived after the splash timed out) so the next resume shows it instead of wasting the fill.
+     */
+    internal fun offerResumeAd(ad: AppOpenAd) {
+        if (Looper.myLooper() != Looper.getMainLooper()) { AdsProvider.MAIN.post { offerResumeAd(ad) }; return }
+        if (!isInitialized || AppPurchase.getInstance().isPurchased()) {
+            ad.destroy()
+            return
         }
+        spareAd?.destroy()
+        spareAd = ad
+        spareAdLoadedAt = SystemClock.elapsedRealtime()
+    }
+
+    private fun hasFreshSpareAd(): Boolean {
+        val ad = spareAd ?: return false
+        if (SystemClock.elapsedRealtime() - spareAdLoadedAt < SPARE_AD_MAX_AGE_MS) return true
+        ad.destroy()
+        spareAd = null
+        return false
+    }
+
+    /** Consumes the spare ad first, then the first started id that has a ready ad, in waterfall order. */
+    private fun pollReadyAd(): AppOpenAd? {
+        if (hasFreshSpareAd()) return spareAd.also { spareAd = null }
+        return resumeAdIds()
+            .filter { it in preloadStartedAt }
+            .firstNotNullOfOrNull(AppOpenAdPreloader::pollAd)
+    }
 
     private fun showResumeAds() {
         val activity = getCurrentActivity() ?: return

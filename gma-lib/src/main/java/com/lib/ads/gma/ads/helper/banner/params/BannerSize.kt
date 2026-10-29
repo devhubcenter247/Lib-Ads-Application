@@ -18,11 +18,6 @@ sealed interface BannerSize {
  * Height in dp a loading placeholder should reserve for this size, so the layout does not jump
  * when the banner arrives. Adaptive sizes need a [Context]; without one, [fallbackDp] is used.
  */
-/**
- * Height in dp a loading placeholder should reserve for this size, so the layout does not jump
- * when the banner arrives. Adaptive sizes need a [Context]; without one, [fallbackDp] is used.
- */
-
 internal fun BannerSize.loadingHeightDp(context: Context?, fallbackDp: Int = 56): Int {
     when (this) {
         is BannerSize.Fixed -> return heightDp.coerceAtLeast(1)
@@ -48,3 +43,8 @@ internal fun BannerSize.loadingHeightDp(context: Context?, fallbackDp: Int = 56)
     }
     return adSize.height.coerceAtLeast(1)
 }
+/**
+ * Height in dp to give your banner container before the ad arrives, so the layout keeps the same
+ * size while loading and after the fill. Same value the library uses for its own placeholders.
+ */
+fun BannerSize.reservedHeightDp(context: Context): Int = loadingHeightDp(context)

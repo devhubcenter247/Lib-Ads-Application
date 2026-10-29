@@ -34,13 +34,16 @@ import kotlin.coroutines.resume
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 
-private data class CachedBanner(val ad: BannerAd, val sourceView: AdView)
+private data class CachedBanner(
+    val ad: BannerAd,
+    val sourceView: AdView,
+    val loadedAt: Long = System.currentTimeMillis(),
+)
 
 object BannerAds {
     private const val TAG = "BannerAds"
     private val states = ConcurrentHashMap<String, MutableStateFlow<BannerPreloadState>>()
     private val specs = ConcurrentHashMap<String, BannerAdSpec>()
-    private val preloadStartedAt = ConcurrentHashMap<String, Long>()
     private val preloadJobs = ConcurrentHashMap<String, Job>()
     private val targetBuffers = ConcurrentHashMap<String, Int>()
     /** Number of banner load slots currently running for each placement key. */
@@ -94,12 +97,7 @@ object BannerAds {
         if (force || target > previousTarget) targetBuffers[tag] = target
         val requestedTarget = targetBuffers[tag] ?: target
         val cache = tagCaches.get(tag) ?: ArrayDeque<CachedBanner>().also { tagCaches.put(tag, it) }
-        if (!force && isExpired(tag, specs[tag] ?: spec)) {
-            preloadJobs.remove(tag)?.cancel()
-            cache.forEach { destroyCached(it) }
-            cache.clear()
-            generations.getOrPut(tag) { AtomicInteger() }.incrementAndGet()
-        }
+        if (!force) pruneExpired(tag, specs[tag] ?: spec)
         if (force) {
             preloadJobs.remove(tag)?.cancel()
             cache.forEach { destroyCached(it) }
@@ -117,7 +115,6 @@ object BannerAds {
         }
         val generation = generations.getOrPut(tag) { AtomicInteger() }.get()
         state(tag).value = BannerPreloadState.Loading
-        preloadStartedAt[tag] = System.currentTimeMillis()
         val workerCount = (requestedTarget - cache.size).coerceAtLeast(1).coerceAtMost(MAX_PARALLEL_BANNER_PRELOADS)
         AdLogger.d(AdFormat.BANNER, tag, "PRELOAD_START", "ids=${spec.adUnitIds} target=$requestedTarget parallel=$workerCount widthDp=${spec.widthDp} heightConfig=${spec.heightConfig}")
         preloadJobs[tag] = scope.launch {
@@ -201,7 +198,7 @@ object BannerAds {
 
     fun available(tag: String): Int {
         val spec = specs[tag] ?: return 0
-        if (isExpired(tag, spec)) return 0
+        pruneExpired(tag, spec)
         return tagCaches.get(tag)?.size ?: 0
     }
 
@@ -222,7 +219,7 @@ object BannerAds {
     /** Replaces cached ads whose configured TTL has elapsed before they are consumed. */
     fun ensureFresh(tag: String) {
         val spec = specs[tag] ?: return
-        if (isExpired(tag, spec)) preload(spec)
+        if (pruneExpired(tag, spec) > 0) preload(spec)
     }
 
     /** Starts a new normal load when this placement has no cached banner available. */
@@ -238,7 +235,7 @@ object BannerAds {
         val requestedSize = size ?: spec.size
         val requestedCollapsibleGravity = collapsibleGravity ?: spec.collapsibleGravity
         val hasCorrectCache = available(tag) >= spec.bufferSize && requestedSize == spec.size && requestedCollapsibleGravity == spec.collapsibleGravity
-        if (isExpired(tag, spec) || !hasCorrectCache) {
+        if (!hasCorrectCache) {
             AdLogger.d(AdFormat.BANNER, tag, "ENSURE", "restarting normal load")
             val requestSpec = spec.copyForRequest(requestedSize, requestedCollapsibleGravity)
             if (requestSpec.size != spec.size || requestSpec.collapsibleGravity != spec.collapsibleGravity) {
@@ -257,10 +254,7 @@ object BannerAds {
             AppLogger.w(TAG, "get tag=$tag ignored: no registered spec")
             return null
         }
-        if (isExpired(tag, spec)) {
-            AppLogger.w(TAG, "get tag=$tag ignored: preload expired")
-            return null
-        }
+        pruneExpired(tag, spec)
         val cache = tagCaches.get(tag)
         val cached = cache?.let { if (it.isEmpty()) null else it.removeFirst() }
         val adView = cached?.let {
@@ -326,22 +320,35 @@ object BannerAds {
         val spec = specs[tag]
         val cache = tagCaches.get(tag)
         val capacity = maxOf(targetBuffers[tag] ?: spec?.bufferSize ?: 1, MAX_UNCLAIMED_BANNER_BUFFER)
-        if (spec == null || isExpired(tag, spec) || (cache?.size ?: 0) >= capacity) {
+        if (spec == null || isCachedExpired(cached, spec) || (cache?.size ?: 0) >= capacity) {
             AdLogger.d(AdFormat.BANNER, tag, "LATE_AD", "destroyed: buffer unavailable or full")
             destroyCached(cached)
             return
         }
-        preloadStartedAt.putIfAbsent(tag, System.currentTimeMillis())
         val buffer = cache ?: ArrayDeque<CachedBanner>().also { tagCaches.put(tag, it) }
         buffer.addLast(cached)
         AdLogger.d(AdFormat.BANNER, tag, "LATE_AD", "kept for next request cached=${buffer.size}")
         if (preloadJobs[tag]?.isActive != true) state(tag).value = BannerPreloadState.Ready(buffer.size)
     }
 
-    private fun isExpired(tag: String, spec: BannerAdSpec): Boolean {
-        if (spec.ttlMs <= 0L) return false
-        val startedAt = preloadStartedAt[tag] ?: return false
-        return System.currentTimeMillis() - startedAt >= spec.ttlMs
+    private fun isCachedExpired(cached: CachedBanner, spec: BannerAdSpec): Boolean =
+        spec.ttlMs > 0L && System.currentTimeMillis() - cached.loadedAt >= spec.ttlMs
+
+    /** Destroys every cached banner of [tag] older than its TTL; returns how many were dropped. */
+    private fun pruneExpired(tag: String, spec: BannerAdSpec): Int {
+        val cache = tagCaches.get(tag) ?: return 0
+        var dropped = 0
+        val iterator = cache.iterator()
+        while (iterator.hasNext()) {
+            val cached = iterator.next()
+            if (isCachedExpired(cached, spec)) {
+                iterator.remove()
+                destroyCached(cached)
+                dropped++
+            }
+        }
+        if (dropped > 0) AdLogger.d(AdFormat.BANNER, tag, "EXPIRED", "dropped=$dropped remaining=${cache.size}")
+        return dropped
     }
 
     private fun destroyCached(cached: CachedBanner) {

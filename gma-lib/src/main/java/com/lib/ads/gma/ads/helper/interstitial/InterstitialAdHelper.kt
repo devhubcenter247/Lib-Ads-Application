@@ -178,6 +178,7 @@ open class InterstitialAdHelper(
 
     private var interstitialAdLocal: InterstitialAd? = null
     private var loadedAdUnitId: String? = null
+    private var loadedAtMs: Long = 0L
     private var lastImpressionTime: Long = 0
     private val listAdCallback: CopyOnWriteArrayList<InterstitialAdListener> = CopyOnWriteArrayList()
     private val loadWaiters = CopyOnWriteArrayList<(Boolean) -> Unit>()
@@ -221,6 +222,7 @@ open class InterstitialAdHelper(
                 is InterstitialAdParam.Ready -> {
                     flagActive.compareAndSet(false, true)
                     interstitialAdLocal = param.interstitialAd
+                    loadedAtMs = System.currentTimeMillis()
                     notifyLoadWaiters(true)
                 }
                 is InterstitialAdParam.Show -> {
@@ -241,8 +243,7 @@ open class InterstitialAdHelper(
         flagActive.compareAndSet(true, false)
         loadingJob?.cancel()
         loadingJob = null
-        interstitialAdLocal = null
-        loadedAdUnitId = null
+        returnUnshownAdToPool()
         pendingShowGate?.cancel()
         pendingShowGate = null
         notifyLoadWaiters(false)
@@ -260,12 +261,14 @@ open class InterstitialAdHelper(
 
                 if (!isActiveState()) {
                     logInterruptExecute("loadInterstitialAd")
+                    result?.let { InterstitialAdPreload.offer(it.adUnitId, ApInterstitialAd(it.ad)) }
                     return@launch
                 }
 
                 if (result != null) {
                     interstitialAdLocal = result.ad
                     loadedAdUnitId = result.adUnitId
+                    loadedAtMs = System.currentTimeMillis()
                     invokeAdListener { it.onLoaded(ApInterstitialAd(result.ad)) }
                     notifyLoadWaiters(true)
                 } else {
@@ -335,6 +338,8 @@ open class InterstitialAdHelper(
         val cached = cachedWrapper?.interstitialAd ?: return false
         interstitialAdLocal = cached
         loadedAdUnitId = cached.adUnitId
+        // The pool does not expose the original load time; treat it as fresh from now.
+        loadedAtMs = System.currentTimeMillis()
         notifyLoadWaiters(true)
         invokeAdListener { it.onLoaded(ApInterstitialAd(cached)) }
         logZ("Using preloaded interstitial with tag=$tag")
@@ -359,8 +364,13 @@ open class InterstitialAdHelper(
                             logZ("onAdLoaded: $adId")
                             ad.setImmersiveMode(true)
 
+                            // A load that outlived its timeout or its screen still counts as a
+                            // matched request: keep the ad in the shared pool instead of dropping it.
+                            val keepInPool = { InterstitialAdPreload.offer(adId, ApInterstitialAd(ad)) }
                             if (continuation.isActive) {
-                                continuation.resume(ad)
+                                continuation.resume(ad) { _ -> keepInPool() }
+                            } else {
+                                keepInPool()
                             }
                         }
 
@@ -428,9 +438,7 @@ open class InterstitialAdHelper(
             return
         }
 
-        val intervalMs = config.intervalBetweenAds * 1000L
-        val timeSinceLastImpression = System.currentTimeMillis() - lastImpressionTime
-        if (intervalMs > 0 && timeSinceLastImpression < intervalMs) {
+        if (isWithinInterval()) {
             logZ("showAd: Skipping due to interval restriction")
             waitingDialog.dismissSafely()
             AdsProvider.getInstance().setFullScreenAdShowing(false)
@@ -461,8 +469,6 @@ open class InterstitialAdHelper(
                     waitingDialog.dismissSafely()
                     AdsProvider.getInstance().setFullScreenAdShowing(false)
                     dismissLoadingDialog()
-                    interstitialAdLocal = null
-                    loadedAdUnitId = null
 
                     invokeAdListener { it.onNextAction() }
                     invokeAdListener { it.onDismissed(ApInterstitialAd(interstitialAd)) }
@@ -480,8 +486,6 @@ open class InterstitialAdHelper(
                     waitingDialog.dismissSafely()
                     AdsProvider.getInstance().setFullScreenAdShowing(false)
                     dismissLoadingDialog()
-                    interstitialAdLocal = null
-                    loadedAdUnitId = null
                     invokeAdListener { it.onFailedToShow(ApAdError(fullScreenContentError)) }
                     invokeAdListener { it.onNextAction() }
                     unregisterOneShot(oneShotCallback)
@@ -530,6 +534,11 @@ open class InterstitialAdHelper(
             return
         }
         try {
+            // Detach before showing: a shown ad must never go back to the pool when the screen closes.
+            if (interstitialAdLocal === interstitialAd) {
+                interstitialAdLocal = null
+                loadedAdUnitId = null
+            }
             invokeAdListener { it.onNextAction() }
             interstitialAd.show(activity)
         } catch (e: Exception) {
@@ -569,7 +578,8 @@ open class InterstitialAdHelper(
     ) {
         callback?.let { registerAdListener(it) }
         scope.launch {
-            if (!enabled) {
+            if (!enabled || isWithinInterval()) {
+                // Inside the interval the ad would be skipped anyway: don't load one just to drop it.
                 invokeAdListener { it.onNextAction() }
                 callback?.let { unregisterAdListener(it) }
                 return@launch
@@ -624,6 +634,23 @@ open class InterstitialAdHelper(
                     unregisterOneShot(callback)
                 }
             )
+        }
+    }
+
+    private fun isWithinInterval(): Boolean {
+        val intervalMs = config.intervalBetweenAds * 1000L
+        return intervalMs > 0 && System.currentTimeMillis() - lastImpressionTime < intervalMs
+    }
+
+    /** Hands a loaded, never-shown ad to the shared pool so the next screen can show it. */
+    private fun returnUnshownAdToPool() {
+        val ad = interstitialAdLocal
+        val adUnitId = loadedAdUnitId ?: ad?.adUnitId
+        interstitialAdLocal = null
+        loadedAdUnitId = null
+        if (ad != null && !adUnitId.isNullOrBlank()) {
+            InterstitialAdPreload.offer(adUnitId, ApInterstitialAd(ad), loadedAtMs)
+            logZ("returned unshown ad to pool: $adUnitId")
         }
     }
 

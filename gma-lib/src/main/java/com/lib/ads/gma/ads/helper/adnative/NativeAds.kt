@@ -23,6 +23,8 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import java.util.Collections
+import java.util.WeakHashMap
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.resume
@@ -31,7 +33,11 @@ import kotlin.coroutines.resume
 object NativeAds {
     private val states = mutableMapOf<String, MutableStateFlow<PreloadBufferState>>()
     private val specs = mutableMapOf<String, NativeAdSpec>()
-    private val preloadStartedAt = ConcurrentHashMap<String, Long>()
+    /**
+     * When each ad was loaded, kept per ad (weak, identity-keyed) so an ad recycled between holders
+     * keeps its original age instead of being treated as fresh.
+     */
+    private val loadedAt: MutableMap<ApNativeAd, Long> = Collections.synchronizedMap(WeakHashMap())
     private val preloadJobs = ConcurrentHashMap<String, Job>()
     private val targetBuffers = ConcurrentHashMap<String, Int>()
 
@@ -105,12 +111,8 @@ object NativeAds {
         if (force || target > previousTarget) targetBuffers[tag] = target
         val requestedTarget = targetBuffers[tag] ?: target
         val cache = tagCaches.get(tag) ?: ArrayDeque<ApNativeAd>().also { tagCaches.put(tag, it) }
-        if (!force && isExpired(tag, specs[tag] ?: return)) {
-            preloadJobs.remove(tag)?.cancel()
-            cache.forEach { runCatching { it.nativeAd?.destroy() } }
-            cache.clear()
-            tagGenerations.getOrPut(tag) { AtomicInteger() }.incrementAndGet()
-        }
+        val currentSpec = specs[tag] ?: return
+        if (!force) pruneExpired(tag, currentSpec)
         if (force) {
             AdLogger.d(
                 AdFormat.NATIVE,
@@ -160,7 +162,6 @@ object NativeAds {
             "ids=$adUnitIds cached=${cache.size} target=$requestedTarget parallel=${(requestedTarget - cache.size).coerceAtLeast(1).coerceAtMost(MAX_PARALLEL_NATIVE_PRELOADS)}"
         )
         state(tag).value = PreloadBufferState.Loading(cache.size, requestedTarget)
-        preloadStartedAt[tag] = System.currentTimeMillis()
         preloadJobs[tag] = scope.launch {
             val context = AdsProvider.getInstance().applicationContextOrNull()
             if (context == null || adUnitIds.isEmpty()) {
@@ -188,6 +189,7 @@ object NativeAds {
                             val ad = result?.first
                             val winningId = result?.second
                             if (ad != null && tagGenerations[tag]?.get() == generation) {
+                                markLoaded(ad)
                                 cache.addLast(ad)
                                 AdLogger.d(
                                     AdFormat.NATIVE,
@@ -256,7 +258,7 @@ object NativeAds {
     fun stateFlow(tag: String): StateFlow<PreloadBufferState> = state(tag)
     fun available(tag: String): Int {
         val spec = specs[tag] ?: return 0
-        if (isExpired(tag, spec)) return 0
+        pruneExpired(tag, spec)
         return tagCaches.get(tag)?.size ?: 0
     }
 
@@ -277,10 +279,10 @@ object NativeAds {
         return tagCaches.get(tag)?.firstOrNull()?.resolvedAdUnitId()
     }
 
-    /** Replaces a buffer whose configured TTL has elapsed before it is consumed. */
+    /** Replaces buffered ads whose configured TTL has elapsed before they are consumed. */
     fun ensureFresh(tag: String) {
         val spec = specs[tag] ?: return
-        if (isExpired(tag, spec)) {
+        if (pruneExpired(tag, spec) > 0) {
             preload(spec)
         }
     }
@@ -329,7 +331,7 @@ object NativeAds {
      * next request shows it instead of wasting a matched request. Such ads may exceed the preload
      * target up to [MAX_OFFERED_NATIVE_BUFFER]: in a list many holders share one tag, and capping at
      * the preload target (usually 1) destroyed every other late fill. The ad is destroyed when the
-     * tag is not registered, its buffer has expired or is full. Safe to call from any thread.
+     * tag is not registered, the ad itself has expired or the buffer is full. Safe to call from any thread.
      */
     internal fun offer(tag: String, ad: ApNativeAd) {
         scope.launch {
@@ -337,14 +339,13 @@ object NativeAds {
             val cache = tagCaches.get(tag)
             val target = (targetBuffers[tag] ?: spec?.bufferSize ?: 1).coerceAtLeast(1)
             val capacity = maxOf(target, MAX_OFFERED_NATIVE_BUFFER)
-            if (spec == null || isExpired(tag, spec) || (cache?.size ?: 0) >= capacity) {
+            // An ad this buffer never saw (a holder's cold load) is aged from now.
+            markLoaded(ad)
+            if (spec == null || isAdExpired(ad, spec) || (cache?.size ?: 0) >= capacity) {
                 AdLogger.d(AdFormat.NATIVE, tag, "LATE_AD", "destroyed: buffer unavailable or full")
                 runCatching { ad.nativeAd?.destroy() }
                 return@launch
             }
-            // A tag filled only by holders' cold loads has no preload timestamp; start its TTL here
-            // so offered ads cannot be kept forever.
-            preloadStartedAt.putIfAbsent(tag, System.currentTimeMillis())
             val buffer = cache ?: ArrayDeque<ApNativeAd>().also { tagCaches.put(tag, it) }
             buffer.addLast(ad)
             AdLogger.d(AdFormat.NATIVE, tag, "LATE_AD", "kept for next request cached=${buffer.size}")
@@ -355,7 +356,7 @@ object NativeAds {
     /** Polls a buffered ad for the registered spec. Check [ApNativeAd.resolvedAdUnitId] on the result to see which id in the waterfall won. */
     fun get(tag: String): ApNativeAd? {
         val spec = specs[tag] ?: return null
-        if (isExpired(tag, spec)) return null
+        pruneExpired(tag, spec)
         val cache = tagCaches.get(tag) ?: return null
         val ad = if (cache.isEmpty()) null else cache.removeFirst()
         // Polling only consumes the buffer. Preload is explicitly started by preload()/safePreload();
@@ -375,10 +376,32 @@ object NativeAds {
         return get(tag)
     }
 
-    private fun isExpired(tag: String, spec: NativeAdSpec): Boolean {
+    /** Records when [ad] was loaded; an ad already known keeps its original load time. */
+    internal fun markLoaded(ad: ApNativeAd) {
+        loadedAt.putIfAbsent(ad, System.currentTimeMillis())
+    }
+
+    private fun isAdExpired(ad: ApNativeAd, spec: NativeAdSpec): Boolean {
         if (spec.ttlMs <= 0L) return false
-        val startedAt = preloadStartedAt[tag] ?: return false
-        return System.currentTimeMillis() - startedAt >= spec.ttlMs
+        val loaded = loadedAt[ad] ?: return false
+        return System.currentTimeMillis() - loaded >= spec.ttlMs
+    }
+
+    /** Destroys every buffered ad of [tag] older than its TTL; returns how many were dropped. */
+    private fun pruneExpired(tag: String, spec: NativeAdSpec): Int {
+        val cache = tagCaches.get(tag) ?: return 0
+        var dropped = 0
+        val iterator = cache.iterator()
+        while (iterator.hasNext()) {
+            val ad = iterator.next()
+            if (isAdExpired(ad, spec)) {
+                iterator.remove()
+                runCatching { ad.nativeAd?.destroy() }
+                dropped++
+            }
+        }
+        if (dropped > 0) AdLogger.d(AdFormat.NATIVE, tag, "EXPIRED", "dropped=$dropped remaining=${cache.size}")
+        return dropped
     }
 
     private suspend fun loadNativeWaterfall(
