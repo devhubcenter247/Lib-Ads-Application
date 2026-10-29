@@ -16,6 +16,7 @@ import com.lib.ads.gma.ads.helper.appopen.AppOpenManager
 import com.lib.ads.gma.ads.config.AdSdkConfig
 import com.lib.ads.gma.ads.event.AdsAdjust
 import com.lib.ads.gma.ads.event.AdsAppsflyer
+import com.lib.ads.gma.ads.event.ConsentSignals
 import com.lib.ads.gma.ads.util.AppLogger
 import com.lib.ads.gma.ads.util.AppUtil
 import com.adjust.sdk.Adjust
@@ -67,14 +68,22 @@ open class AdsProvider private constructor() {
     fun isConfigured() =
         ::adConfig.isInitialized && ::application.isInitialized && ::appAdId.isInitialized
 
+    private val attributionStarted = AtomicBoolean(false)
+
+    @Volatile
+    private var attributionApplication: Application? = null
+
     /** Application context for helpers that need to issue a normal SDK request off-screen. */
     internal fun applicationContextOrNull(): android.content.Context? =
-        if (::application.isInitialized) application else null
+        if (::application.isInitialized) application else attributionApplication
 
     val adConfigOrNull: AdSdkConfig?
         get() = if (::adConfig.isInitialized) adConfig else null
 
     fun isMobileAdsReady() = mobileAdsReady.isCompleted
+
+    internal fun interstitialShowDelayMs(): Long =
+        (adConfigOrNull?.interstitialShowDelayMs ?: 800L).coerceAtLeast(0L)
 
     /** Suspends until GMA initialization completes, returning false on timeout. */
     suspend fun awaitReadySuspend(timeoutMs: Long = 15_000L): Boolean {
@@ -115,24 +124,43 @@ open class AdsProvider private constructor() {
         // MobileAds.initialize() completes, in initAdsNetwork() — the GMA Next-Gen SDK throws
         // IllegalStateException("MobileAds.initialize must be called before using the Google
         // Mobile Ads SDK.") if setRequestConfiguration() runs any earlier.
-        adConfig.adjustConfig?.let {
-            if (it.enableAdjust) setupAdjust(
-                adConfig.isVariantDev,
-                it.adjustToken,
-                it.fbAppId
-            )
+    }
+
+    /**
+     * Starts Adjust / AppsFlyer and applies the stored consent. Idempotent and independent of GMA
+     * initialization, so attribution is not held back when ads wait for consent. Call on the main
+     * thread from `Application.onCreate()` (AdsMultiDexApplication does), before any Activity
+     * resumes — Adjust relies on seeing the first `onResume` to open the session.
+     */
+    fun initAttribution(application: Application, config: AdSdkConfig) {
+        if (!attributionStarted.compareAndSet(false, true)) return
+        attributionApplication = application
+        if (!::adConfig.isInitialized) this.adConfig = config
+        config.adjustConfig?.let {
+            if (it.enableAdjust) setupAdjust(application, config.isVariantDev, it.adjustToken, it.fbAppId)
         }
-        adConfig.appsflyerConfig?.let {
+        config.appsflyerConfig?.let {
             if (it.enableAppsflyer) {
                 AdsAppsflyer.connect(
                     application = application,
                     devKey = it.devKey,
-                    debug = adConfig.isVariantDev,
+                    debug = config.isVariantDev,
                     events = it.events,
                     alreadyInitialized = it.alreadyInitialized,
+                    enableTCFDataCollection = it.enableTCFDataCollection,
                 )
             }
         }
+        onConsentUpdated(application)
+    }
+
+    /**
+     * Re-applies the UMP/TCF decision to Firebase and Adjust. The SDK calls it after the consent
+     * form and the privacy-options form; call it yourself if you run UMP outside [ConsentManager].
+     */
+    fun onConsentUpdated(context: android.content.Context) {
+        if (adConfigOrNull?.propagateConsent == false) return
+        ConsentSignals.apply(context, adjustEnabled = AdsAdjust.enableAdjust)
     }
 
     private fun applyRequestConfiguration() {
@@ -163,9 +191,13 @@ open class AdsProvider private constructor() {
             onReady?.let(::runWhenReady)
             return
         }
+        // Attribution SDKs start on the caller's (main) thread, not on the IO coroutine below.
+        initAttribution(application, config)
+        // On the caller's thread: these lateinit fields are read on main (isConfigured(), adConfig)
+        // and writing them from the IO coroutine gave no visibility guarantee.
+        configure(application, config)
 
         initializationScope.launch {
-            configure(application, config)
             initAdsNetwork {
                 onReady?.invoke()
             }
@@ -266,13 +298,17 @@ open class AdsProvider private constructor() {
         }
     }
 
-    private fun setupAdjust(buildDebug: Boolean, adjustToken: String, fbAppId: String) {
+    private fun setupAdjust(application: Application, buildDebug: Boolean, adjustToken: String, fbAppId: String) {
+        if (adjustToken.isBlank()) {
+            AppLogger.w(TAG_ADJUST, "setupAdjust skipped: adjustToken is blank")
+            return
+        }
         AdsAdjust.enableAdjust = true
         val environment =
             if (buildDebug) AdjustSdkConfig.ENVIRONMENT_SANDBOX else AdjustSdkConfig.ENVIRONMENT_PRODUCTION
         AppLogger.i(TAG_ADJUST, "setupAdjust: $environment")
         val config = AdjustSdkConfig(application, adjustToken, environment)
-        config.setLogLevel(LogLevel.VERBOSE)
+        config.setLogLevel(if (buildDebug) LogLevel.VERBOSE else LogLevel.WARN)
         config.setOnAttributionChangedListener { attribution ->
             AppLogger.d(TAG_ADJUST, "Attribution callback called!")
             AppLogger.d(TAG_ADJUST, "Attribution: $attribution")

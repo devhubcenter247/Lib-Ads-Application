@@ -15,22 +15,30 @@ An Android ad management library providing unified integration for AdMob ads, in
 
 | Module | Description |
 |--------|-------------|
-| `adlib` | Core ad library with all integrations |
-| `app` | Sample application demonstrating usage |
+| `gma-lib` | **Current library** on the Google Mobile Ads Next-Gen SDK (`com.lib:gmasdk`). Used by the sample app. |
+| `adlib` | Legacy library on `play-services-ads`, kept for existing consumers. No new features. |
+| `app` | Sample application (flavors `appDev` / `appProd`) built on `gma-lib` |
+
+`gma-lib` and `adlib` share package names with incompatible types — use one, never both.
+
+**gma-lib docs:** [Document/gma-lib.md](Document/gma-lib.md) and
+[Document/tracking-iap-integration.md](Document/tracking-iap-integration.md) (tracking, IAP,
+consent, upgrade checklist).
 
 ---
 
 ## Requirements
 
-- Android SDK 24+ (minSdk)
-- Android SDK 36 (compileSdk / targetSdk)
-- JDK 11
-- Gradle 8.13+
-- Kotlin 2.1.0
+- minSdk 26, compileSdk / targetSdk 37
+- JDK 17
+- AGP 9.1.1, Kotlin 2.3.21
+- SDK versions: `gradle/libs.versions.toml`
 
 ---
 
-## Integration
+## Integration (legacy `adlib`)
+
+> The steps below describe the legacy `adlib` module. For `gma-lib`, see the documents linked above.
 
 ### 1. Add the library module
 
@@ -605,27 +613,22 @@ override fun onCreate(savedInstanceState: Bundle?) {
 }
 
 private fun onButtonClick() {
-    interstitialHelper.showAd(
-        activity  = this,
-        onNextAction = { navigateToNextScreen() }
+    interstitialHelper.waitLoadAndShow(
+        activity = this,
+        callback = object : InterstitialAdListener {
+            // Fires exactly once: right before the ad shows (the next screen opens behind it),
+            // or when there is no ad to show. Not repeated when the ad is dismissed.
+            override fun onNextAction() = navigateToNextScreen()
+            override fun onDismissed(ad: ApInterstitialAd) { /* ad closed */ }
+        }
     )
 }
 ```
 
-**Observe state (optional):**
-
-```kotlin
-lifecycleScope.launch {
-    interstitialHelper.adState.collect { state ->
-        when (state) {
-            is AdInterstitialState.Loaded   -> enableButton()
-            is AdInterstitialState.Showing  -> disableButton()
-            is AdInterstitialState.Dismissed -> navigateToNextScreen()
-            else -> Unit
-        }
-    }
-}
-```
+`waitLoadAndShow` keeps the loading cover up for at most 8 s by default (`timeoutMs`); a fill
+that arrives later stays cached for the next show. The pause before `show()` is
+`AdSdkConfig.interstitialShowDelayMs` (800 ms by default). A loaded ad the screen never showed
+goes back to the shared preload store when the screen is destroyed.
 
 ---
 

@@ -11,7 +11,6 @@ import com.android.billingclient.api.PurchasesUpdatedListener
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import com.lib.ads.gma.ads.util.AppLogger
 
 internal class BillingConnectionManager {
@@ -91,9 +90,17 @@ internal class BillingConnectionManager {
         }
     }
 
-    internal suspend fun awaitConnection(): BillingClient? {
-        _state.first { it is BillingState.Connected }
-        return billingClient
+    /**
+     * Retries a connection that gave up after [MAX_RECONNECT_ATTEMPTS], so [state] / [isAvailable]
+     * do not stay Disconnected for the rest of the session (e.g. Play Store updated in the background).
+     */
+    fun reconnectIfDisconnected() {
+        // Below the cap a delayed retry is still pending: starting another connection would race it.
+        if (isAvailable || _state.value !is BillingState.Disconnected || reconnectAttempts < MAX_RECONNECT_ATTEMPTS) return
+        val sl = stateListener ?: return
+        AppLogger.d(TAG, "reconnectIfDisconnected: retrying")
+        reconnectAttempts = 0
+        billingClient?.startConnection(sl)
     }
 
     fun getBillingClient(): BillingClient? = billingClient

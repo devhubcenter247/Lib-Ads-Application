@@ -2,12 +2,12 @@ package com.lib.ads.gma.ads.helper.appopen
 
 import android.app.Activity
 import android.app.Application
+import android.content.Intent
 import android.app.Dialog
 import android.content.Context
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.util.Log
 import android.view.Window
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.Lifecycle
@@ -24,8 +24,9 @@ import com.google.android.libraries.ads.mobile.sdk.common.PreloadConfiguration
 import com.lib.ads.gma.ads.billing.AppPurchase
 import com.lib.ads.gma.ads.dialog.ResumeLoadingDialog
 import com.lib.ads.gma.ads.engine.AdsProvider
+import com.lib.ads.gma.ads.event.AdHealthEvents
 import com.lib.ads.gma.ads.event.AdsLogEventManager
-import com.lib.ads.gma.ads.helper.extension.extractAdUnitIdOrNull
+import com.lib.ads.gma.ads.helper.extension.adUnitIdOrEmpty
 import com.lib.ads.gma.ads.listener.AdResumePreShowListener
 import com.lib.ads.gma.ads.manager.AdsManager
 import com.lib.ads.gma.ads.model.AdType
@@ -44,6 +45,7 @@ class AppOpenManager private constructor() : Application.ActivityLifecycleCallba
     private var isInitialized: Boolean = false
     var isAppResumeEnabled: Boolean = true
         private set
+    @Volatile
     var isInterstitialShowing: Boolean = false
     private var enableScreenContentCallback: Boolean = false
     private var disableAdResumeByClickAction: Boolean = false
@@ -52,6 +54,7 @@ class AppOpenManager private constructor() : Application.ActivityLifecycleCallba
     /** Ids for which [AppOpenAdPreloader.start] has already been called; guards duplicate starts. */
     private val preloadStartedIds: MutableSet<String> = mutableSetOf()
     private var hasBeenInBackground: Boolean = false
+    private var relaunchedViaLauncher: Boolean = false
     private var dialog: Dialog? = null
     private var isEnableList: Boolean = false
     private var adResumePreShowListener: AdResumePreShowListener? = null
@@ -64,6 +67,8 @@ class AppOpenManager private constructor() : Application.ActivityLifecycleCallba
         @Volatile
         private var INSTANCE: AppOpenManager? = null
 
+        /** Written from SDK background callbacks, read on main before every resume show. */
+        @Volatile
         @JvmStatic
         var isShowingAd: Boolean = false
             internal set
@@ -92,7 +97,7 @@ class AppOpenManager private constructor() : Application.ActivityLifecycleCallba
         disableAdResumeByClickAction = false
         myApplication = application
         if (!alreadyRegistered) {
-            myApplication!!.registerActivityLifecycleCallbacks(this)
+            application.registerActivityLifecycleCallbacks(this)
             ProcessLifecycleOwner.get().lifecycle.addObserver(this as LifecycleObserver)
         }
         appResumeAdId = appOpenAdId
@@ -107,7 +112,7 @@ class AppOpenManager private constructor() : Application.ActivityLifecycleCallba
         disableAdResumeByClickAction = false
         myApplication = application
         if (!alreadyRegistered) {
-            myApplication!!.registerActivityLifecycleCallbacks(this)
+            application.registerActivityLifecycleCallbacks(this)
             ProcessLifecycleOwner.get().lifecycle.addObserver(this as LifecycleObserver)
         }
         this.appResumeAdIdList = appOpenAdIdList
@@ -130,12 +135,12 @@ class AppOpenManager private constructor() : Application.ActivityLifecycleCallba
     }
 
     fun disableAppResumeWithActivity(activityClass: Class<*>) {
-        Log.d(TAG, "disableAppResumeWithActivity: ${activityClass.name}")
+        AppLogger.d(TAG, "disableAppResumeWithActivity: ${activityClass.name}")
         disabledAppOpenList.add(activityClass)
     }
 
     fun enableAppResumeWithActivity(activityClass: Class<*>) {
-        Log.d(TAG, "enableAppResumeWithActivity: ${activityClass.name}")
+        AppLogger.d(TAG, "enableAppResumeWithActivity: ${activityClass.name}")
         disabledAppOpenList.remove(activityClass)
     }
 
@@ -182,17 +187,23 @@ class AppOpenManager private constructor() : Application.ActivityLifecycleCallba
     fun isAdAvailable(isSplash: Boolean): Boolean = if (isSplash) false else isAdAvailable()
 
     override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {
-        // no-op
+        // Reopened from the launcher icon onto a newly created launcher activity (the splash): it
+        // runs its own splash ad, so a resume ad now would stack on it or be buried under the next
+        // screen. Reopening from recents creates no activity and still gets the resume ad.
+        val intent = activity.intent
+        if (hasBeenInBackground && intent?.action == Intent.ACTION_MAIN && intent.hasCategory(Intent.CATEGORY_LAUNCHER)) {
+            relaunchedViaLauncher = true
+        }
     }
 
     override fun onActivityStarted(activity: Activity) {
         currentActivityRef = WeakReference(activity)
-        Log.d(TAG, "onActivityStarted: $activity")
+        AppLogger.d(TAG, "onActivityStarted: $activity")
     }
 
     override fun onActivityResumed(activity: Activity) {
         currentActivityRef = WeakReference(activity)
-        Log.d(TAG, "onActivityResumed: $activity")
+        AppLogger.d(TAG, "onActivityResumed: $activity")
         if (activity.javaClass.name != AdActivity::class.java.name) {
             loadAppOpenResume()
         }
@@ -213,7 +224,7 @@ class AppOpenManager private constructor() : Application.ActivityLifecycleCallba
     override fun onActivityDestroyed(activity: Activity) {
         if (currentActivityRef?.get() == activity) {
             currentActivityRef = null
-            Log.d(TAG, "onActivityDestroyed: cleared ref for ${activity.javaClass.simpleName}")
+            AppLogger.d(TAG, "onActivityDestroyed: cleared ref for ${activity.javaClass.simpleName}")
         }
     }
 
@@ -221,21 +232,17 @@ class AppOpenManager private constructor() : Application.ActivityLifecycleCallba
         if (Looper.myLooper() != Looper.getMainLooper()) { AdsProvider.MAIN.post { showAdIfAvailable() }; return }
         val currentActivity = getCurrentActivity()
         if (currentActivity == null || AppPurchase.getInstance().isPurchased()) {
-            if (appOpenAdEventCallback != null && enableScreenContentCallback) {
-                appOpenAdEventCallback!!.onAdDismissedFullScreenContent()
-            }
+            if (enableScreenContentCallback) appOpenAdEventCallback?.onAdDismissedFullScreenContent()
             return
         }
         if (currentActivity.isFinishing || currentActivity.isDestroyed) {
-            Log.d(TAG, "showAdIfAvailable: Activity can no longer show an ad")
+            AppLogger.d(TAG, "showAdIfAvailable: Activity can no longer show an ad")
             return
         }
-        Log.d(TAG, "showAdIfAvailable: ${ProcessLifecycleOwner.get().lifecycle.currentState}")
+        AppLogger.d(TAG, "showAdIfAvailable: ${ProcessLifecycleOwner.get().lifecycle.currentState}")
         if (!ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
-            Log.d(TAG, "showAdIfAvailable: return")
-            if (appOpenAdEventCallback != null && enableScreenContentCallback) {
-                appOpenAdEventCallback!!.onAdDismissedFullScreenContent()
-            }
+            AppLogger.d(TAG, "showAdIfAvailable: return")
+            if (enableScreenContentCallback) appOpenAdEventCallback?.onAdDismissedFullScreenContent()
             return
         }
         if (!isShowingAd && isAdAvailable() && eligibilityGate?.invoke() != false) {
@@ -297,50 +304,52 @@ class AppOpenManager private constructor() : Application.ActivityLifecycleCallba
     override fun onStart(owner: LifecycleOwner) {
         super.onStart(owner)
         if (!hasBeenInBackground) {
-            Log.d(TAG, "onStart: initial app start; skip app-open resume")
+            AppLogger.d(TAG, "onStart: initial app start; skip app-open resume")
             return
         }
         hasBeenInBackground = false
+        if (relaunchedViaLauncher) {
+            relaunchedViaLauncher = false
+            AppLogger.d(TAG, "onStart: reopened through the launcher activity; its splash shows the ad")
+            return
+        }
         val currentActivity = getCurrentActivity()
         if (!isInitialized) {
-            Log.d(TAG, "onResume: app not initialized")
+            AppLogger.d(TAG, "onResume: app not initialized")
             return
         }
         if (currentActivity == null) {
-            Log.d(TAG, "onResume: currentActivity is null")
+            AppLogger.d(TAG, "onResume: currentActivity is null")
             return
         }
         if (!isAppResumeEnabled) {
-            Log.d(TAG, "onResume: app resume is disabled")
+            AppLogger.d(TAG, "onResume: app resume is disabled")
             return
         }
         if (isInterstitialShowing) {
-            Log.d(TAG, "onResume: interstitial is showing")
+            AppLogger.d(TAG, "onResume: interstitial is showing")
             return
         }
         if (disableAdResumeByClickAction) {
-            Log.d(TAG, "onResume:ad resume disable ad by action")
+            AppLogger.d(TAG, "onResume:ad resume disable ad by action")
             disableAdResumeByClickAction = false
             return
         }
         for (activity in disabledAppOpenList) {
             if (activity.name == currentActivity.javaClass.name) {
-                Log.d(TAG, "onResume: activity is disabled")
+                AppLogger.d(TAG, "onResume: activity is disabled")
                 return
             }
         }
-        Log.d(TAG, "onResume: show resume ads :${currentActivity.javaClass.simpleName}")
-        if (adResumePreShowListener != null) {
-            adResumePreShowListener!!.onPreShowAd()
-        } else {
-            showAdIfAvailable()
-        }
+        AppLogger.d(TAG, "onResume: show resume ads :${currentActivity.javaClass.simpleName}")
+        val preShowListener = adResumePreShowListener
+        if (preShowListener != null) preShowListener.onPreShowAd() else showAdIfAvailable()
     }
 
     override fun onStop(owner: LifecycleOwner) {
         super.onStop(owner)
         hasBeenInBackground = true
-        Log.d(TAG, "onStop: app stop")
+        AppLogger.d(TAG, "onStop: app stop")
     }
 
     /**
@@ -361,8 +370,15 @@ class AppOpenManager private constructor() : Application.ActivityLifecycleCallba
     }
 
     private fun startPreload(id: String) {
+        // Checked before add(): a premium user who loses the entitlement can still start it later.
+        if (AppPurchase.getInstance().isPurchased()) return
         if (!preloadStartedIds.add(id)) return
         AppOpenAdPreloader.start(id, PreloadConfiguration(AdsManager.getAdRequest(id, placementId)))
+    }
+
+    /** Called once the SDK preloaders were destroyed (premium), so a later [startPreload] starts them again. */
+    internal fun clearStartedPreloads() {
+        preloadStartedIds.clear()
     }
 
     /** Consumes one ready ad from the preloader; returns the first available id in waterfall order. */
@@ -376,7 +392,7 @@ class AppOpenManager private constructor() : Application.ActivityLifecycleCallba
     private fun showResumeAds() {
         val activity = getCurrentActivity() ?: return
         if (activity.isFinishing || activity.isDestroyed) {
-            Log.d(TAG, "showResumeAds: Activity can no longer show an ad")
+            AppLogger.d(TAG, "showResumeAds: Activity can no longer show an ad")
             return
         }
         if (AppPurchase.getInstance().isPurchased()) return
@@ -385,7 +401,7 @@ class AppOpenManager private constructor() : Application.ActivityLifecycleCallba
         // bailing out first avoids draining a buffered ad for a show that was never going to happen.
         val ad = pollReadyAd() ?: return
         try { hideDialogLoading(); showDialogLoading() } catch (e: Exception) { e.printStackTrace() }
-        val adUnitId = ad.getResponseInfo().extractAdUnitIdOrNull().orEmpty()
+        val adUnitId = ad.adUnitIdOrEmpty()
         ad.adEventCallback = object : AppOpenAdEventCallback {
             override fun onAdDismissedFullScreenContent() {
                 isShowingAd = false; hideDialogLoading()
@@ -393,6 +409,7 @@ class AppOpenManager private constructor() : Application.ActivityLifecycleCallba
                 loadAppOpenResume()
             }
             override fun onAdFailedToShowFullScreenContent(fullScreenContentError: FullScreenContentError) {
+                AdHealthEvents.showFailed(AdType.APP_OPEN, adUnitId, fullScreenContentError.message)
                 isShowingAd = false; hideDialogLoading()
                 AdsProvider.getInstance().setFullScreenAdShowing(false)
                 loadAppOpenResume()
@@ -405,9 +422,13 @@ class AppOpenManager private constructor() : Application.ActivityLifecycleCallba
             override fun onAdClicked() { AdsLogEventManager.logClickAdsEvent(activity, adUnitId) }
             override fun onAdImpression() { AdsLogEventManager.onTrackImpression(activity) }
             override fun onAdPaid(value: AdValue) {
-                AdsLogEventManager.logPaidAdImpression(activity, value, ad.getResponseInfo(), AdType.APP_OPEN)
+                AdsLogEventManager.logPaidAdImpression(activity, value, ad, AdType.APP_OPEN)
             }
         }
+        // Set now, not in onAdShowedFullScreenContent: interstitial / splash app-open shows check it
+        // so they do not stack on this ad, and the showed callback arrives a few hundred ms later.
+        // Cleared by the dismissed / failed-to-show callbacks.
+        isShowingAd = true
         ad.show(activity)
     }
 

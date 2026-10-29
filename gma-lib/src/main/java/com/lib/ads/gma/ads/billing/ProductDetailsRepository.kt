@@ -176,6 +176,37 @@ internal class ProductDetailsRepository {
     fun getTrialId(subsId: String): String? =
         purchaseItems.firstOrNull { it.itemId == subsId }?.trialId
 
+    fun isConfigured(productId: String): Boolean = purchaseItems.any { it.itemId == productId }
+
+    /** [AppPurchase.TYPE_IAP] of a configured product, null when it is not configured. */
+    fun getType(productId: String): Int? = purchaseItems.firstOrNull { it.itemId == productId }?.type
+
+    /** One-time price, null until product details are loaded. */
+    fun inAppPrice(productId: String): PurchaseRevenue.Price? {
+        val offer = skuDetailsINAPMap[productId]?.oneTimePurchaseOfferDetails ?: return null
+        return PurchaseRevenue.Price(offer.priceAmountMicros, offer.priceCurrencyCode)
+    }
+
+    /** First charged phase of the bought offer, null until product details are loaded. */
+    fun subscriptionStartPrice(productId: String, offerToken: String?): PurchaseRevenue.Price? {
+        val offers = skuDetailsSubsMap[productId]?.subscriptionOfferDetails ?: return null
+        return PurchaseRevenue.subscriptionStartPrice(
+            offers.map { offer ->
+                PurchaseRevenue.OfferPricing(
+                    offerToken = offer.offerToken,
+                    offerId = offer.offerId,
+                    phases = offer.pricingPhases.pricingPhaseList.map {
+                        PurchaseRevenue.Price(it.priceAmountMicros, it.priceCurrencyCode)
+                    },
+                )
+            },
+            offerToken,
+        )
+    }
+
+    fun hasProductDetails(productId: String): Boolean =
+        skuDetailsINAPMap.containsKey(productId) || skuDetailsSubsMap.containsKey(productId)
+
     fun getPrice(productId: String): String? {
         val d = skuDetailsINAPMap[productId] ?: return ""
         AppLogger.d(TAG, "getPrice: ${d.oneTimePurchaseOfferDetails?.formattedPrice}")

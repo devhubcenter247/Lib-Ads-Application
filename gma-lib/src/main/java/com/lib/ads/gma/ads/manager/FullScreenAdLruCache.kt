@@ -1,6 +1,8 @@
 package com.lib.ads.gma.ads.manager
 
 import android.util.LruCache
+import com.lib.ads.gma.ads.helper.fullscreen.preload.FullScreenAdStore
+import com.lib.ads.gma.ads.model.wrapper.ApAdBase
 import com.lib.ads.gma.ads.model.wrapper.ApInterstitialAd
 import com.lib.ads.gma.ads.model.wrapper.ApRewardAd
 import com.google.android.libraries.ads.mobile.sdk.appopen.AppOpenAd
@@ -29,17 +31,16 @@ internal object FullScreenAdLruCache {
     }
 
     @Synchronized
-    fun pollInterstitial(tag: String): ApInterstitialAd? = cache.remove(cacheKey(tag, ApInterstitialAd::class.java)) as? ApInterstitialAd
+    fun pollInterstitial(tag: String): ApInterstitialAd? = pollFresh(cacheKey(tag, ApInterstitialAd::class.java)) as? ApInterstitialAd
 
     @Synchronized
-    fun containsInterstitial(tag: String): Boolean =
-        cache.get(cacheKey(tag, ApInterstitialAd::class.java)) != null
+    fun containsInterstitial(tag: String): Boolean = containsFresh(cacheKey(tag, ApInterstitialAd::class.java))
 
     @Synchronized
-    fun pollReward(tag: String): ApRewardAd? = cache.remove(cacheKey(tag, ApRewardAd::class.java)) as? ApRewardAd
+    fun pollReward(tag: String): ApRewardAd? = pollFresh(cacheKey(tag, ApRewardAd::class.java)) as? ApRewardAd
 
     @Synchronized
-    fun containsReward(tag: String): Boolean = cache.get(cacheKey(tag, ApRewardAd::class.java)) != null
+    fun containsReward(tag: String): Boolean = containsFresh(cacheKey(tag, ApRewardAd::class.java))
 
     @Synchronized
     fun putRewardInterstitial(tag: String, ad: ApRewardAd) {
@@ -48,12 +49,10 @@ internal object FullScreenAdLruCache {
     }
 
     @Synchronized
-    fun pollRewardInterstitial(tag: String): ApRewardAd? =
-        cache.remove(rewardInterstitialKey(tag)) as? ApRewardAd
+    fun pollRewardInterstitial(tag: String): ApRewardAd? = pollFresh(rewardInterstitialKey(tag)) as? ApRewardAd
 
     @Synchronized
-    fun containsRewardInterstitial(tag: String): Boolean =
-        cache.get(rewardInterstitialKey(tag)) != null
+    fun containsRewardInterstitial(tag: String): Boolean = containsFresh(rewardInterstitialKey(tag))
 
     @Synchronized
     fun pollAppOpen(tag: String): AppOpenAd? = cache.remove(cacheKey(tag, AppOpenAd::class.java)) as? AppOpenAd
@@ -84,10 +83,28 @@ internal object FullScreenAdLruCache {
     }
 
     @Synchronized
-    fun contains(tag: String): Boolean = cache.get(cacheKey(tag, ApInterstitialAd::class.java)) != null ||
-        cache.get(cacheKey(tag, ApRewardAd::class.java)) != null ||
-        cache.get(rewardInterstitialKey(tag)) != null ||
+    fun contains(tag: String): Boolean = containsInterstitial(tag) ||
+        containsReward(tag) ||
+        containsRewardInterstitial(tag) ||
         cache.get(cacheKey(tag, AppOpenAd::class.java)) != null
+
+    /**
+     * Interstitial and rewarded ads expire an hour after loading and then fail to show. An entry
+     * older than [FullScreenAdStore.DEFAULT_TTL_MS] is dropped instead of handed out.
+     */
+    private fun pollFresh(key: String): Any? = cache.remove(key)?.takeIf(::isFresh)
+
+    private fun containsFresh(key: String): Boolean {
+        val ad = cache.get(key) ?: return false
+        if (isFresh(ad)) return true
+        cache.remove(key)
+        return false
+    }
+
+    private fun isFresh(ad: Any): Boolean {
+        val loadedAt = (ad as? ApAdBase)?.loadedAtMs ?: return true
+        return System.currentTimeMillis() - loadedAt < FullScreenAdStore.DEFAULT_TTL_MS
+    }
 
     @Synchronized
     fun clear(tag: String) {

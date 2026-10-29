@@ -1,6 +1,7 @@
 package com.lib.ads.gma.ads.helper.appopen
 
 import android.app.Activity
+import com.lib.ads.gma.ads.helper.fullscreen.awaitResumeAdClosed
 import android.app.Dialog
 import android.os.Looper
 import com.google.android.libraries.ads.mobile.sdk.appopen.AppOpenAd
@@ -9,10 +10,11 @@ import com.google.android.libraries.ads.mobile.sdk.common.AdLoadCallback
 import com.google.android.libraries.ads.mobile.sdk.common.FullScreenContentError
 import com.google.android.libraries.ads.mobile.sdk.common.LoadAdError
 import com.lib.ads.gma.ads.engine.AdsProvider
+import com.lib.ads.gma.ads.event.AdHealthEvents
 import com.lib.ads.gma.ads.event.AdsLogEventManager
 import com.lib.ads.gma.ads.helper.appopen.preload.AppOpenAdPreload
 import com.lib.ads.gma.ads.helper.canRequestFullScreenAds
-import com.lib.ads.gma.ads.helper.extension.extractAdUnitIdOrNull
+import com.lib.ads.gma.ads.helper.extension.adUnitIdOrEmpty
 import com.lib.ads.gma.ads.helper.fullscreen.ForegroundGateHandle
 import com.lib.ads.gma.ads.helper.fullscreen.dismissSafely
 import com.lib.ads.gma.ads.helper.fullscreen.isAppInForeground
@@ -312,21 +314,29 @@ class AppOpenAdHelper(
         )
     }
 
-    private suspend fun loadSingleAppOpenAd(id: String): AppOpenPreloadState =
-        withContext(Dispatchers.Main.immediate) {
+    private suspend fun loadSingleAppOpenAd(id: String): AppOpenPreloadState {
+        // Calls the SDK directly: it must not run before MobileAds.initialize (consent-first apps).
+        if (!AdsProvider.getInstance().awaitReadySuspend()) return AppOpenPreloadState.Cancel
+        return withContext(Dispatchers.Main.immediate) {
             suspendCancellableCoroutine { continuation ->
+                val startedAt = AdHealthEvents.now()
                 AppOpenAd.load(
                     AdsManager.getAdRequest(id, config.placementId),
                     object : AdLoadCallback<AppOpenAd> {
                         override fun onAdLoaded(ad: AppOpenAd) {
+                            AdHealthEvents.loadFinished(AdType.APP_OPEN, id, startedAt, null)
                             AppLogger.w(TAG, "onAdLoaded: $id")
                             ad.setImmersiveMode(true)
+                            // A fill after cancellation (or racing it) is never shown: release it.
                             if (continuation.isActive) {
-                                continuation.resume(AppOpenPreloadState.Loaded(ad))
+                                continuation.resume(AppOpenPreloadState.Loaded(ad)) { _, _, _ -> runCatching { ad.destroy() } }
+                            } else {
+                                runCatching { ad.destroy() }
                             }
                         }
 
                         override fun onAdFailedToLoad(adError: LoadAdError) {
+                            AdHealthEvents.loadFinished(AdType.APP_OPEN, id, startedAt, adError)
                             AppLogger.w(TAG, "onAdFailedToLoad: ${adError.message}")
                             if (continuation.isActive) {
                                 continuation.resume(AppOpenPreloadState.Error(adError))
@@ -339,6 +349,7 @@ class AppOpenAdHelper(
                 }
             }
         }
+    }
 
     private fun showAppOpenAd(
         activity: Activity,
@@ -346,13 +357,24 @@ class AppOpenAdHelper(
         dialog: Dialog?,
         callback: AppOpenAdListener?,
     ) {
+        // An app-open resume ad already on screen: showing now would stack two full-screen ads, and
+        // continuing at once would bury it under the next screen. Wait for it to close, then skip.
+        if (AppOpenManager.isShowingAd) {
+            scope.launch {
+                awaitResumeAdClosed()
+                dialog.dismissSafely()
+                AdsProvider.getInstance().setFullScreenAdShowing(false)
+                failShow(callback, "App-open resume ad was on screen")
+            }
+            return
+        }
         if (activity.isFinishing || activity.isDestroyed || !isAppInForeground()) {
             dialog.dismissSafely()
             AdsProvider.getInstance().setFullScreenAdShowing(false)
             failShow(callback, "Activity can no longer show an app-open ad")
             return
         }
-        val adUnitId = ad.getResponseInfo().extractAdUnitIdOrNull().orEmpty()
+        val adUnitId = ad.adUnitIdOrEmpty()
         ad.adEventCallback = object : AppOpenAdEventCallback {
             override fun onAdShowedFullScreenContent() {
                 scope.launch {
@@ -372,6 +394,7 @@ class AppOpenAdHelper(
             }
 
             override fun onAdFailedToShowFullScreenContent(fullScreenContentError: FullScreenContentError) {
+                AdHealthEvents.showFailed(AdType.APP_OPEN, adUnitId, fullScreenContentError.message)
                 scope.launch {
                     dialog.dismissSafely()
                     AdsProvider.getInstance().setFullScreenAdShowing(false)
@@ -398,7 +421,7 @@ class AppOpenAdHelper(
                     AdsLogEventManager.logPaidAdImpression(
                         activity,
                         adValue,
-                        ad.getResponseInfo(),
+                        ad,
                         AdType.APP_OPEN
                     )
                     dispatch(callback) { it.onPaid(adValue) }

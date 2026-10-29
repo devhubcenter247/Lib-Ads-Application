@@ -2,9 +2,16 @@ package com.lib.ads.gma.ads.billing
 
 import android.app.Activity
 import android.app.Application
+import android.os.SystemClock
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import com.lib.ads.gma.ads.engine.AdsProvider
+import com.lib.ads.gma.ads.engine.whenAdsReady
+import com.lib.ads.gma.ads.manager.AdsManager
 import com.lib.ads.gma.ads.util.AppUtil
 import com.lib.ads.gma.ads.util.AppLogger
+import com.lib.ads.gma.ads.util.SharePreferenceUtils
 import com.android.billingclient.api.BillingClient
 import com.android.billingclient.api.BillingResult
 import com.android.billingclient.api.ProductDetails
@@ -21,6 +28,7 @@ class AppPurchase private constructor() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var timeoutJob: Job? = null
+    private var lastForegroundRefreshAt = 0L
 
     private var connectionManager: BillingConnectionManager? = null
     private var repository: ProductDetailsRepository? = null
@@ -35,6 +43,7 @@ class AppPurchase private constructor() {
     private var updatePurchaseListener: UpdatePurchaseListener? = null
     private var compatibilityPurchaseListener: PurchaseListener? = null
     private var enableTrackingRevenue: Boolean = false
+    private var recoveredConsumableListener: ((PurchaseEvent.Success) -> Unit)? = null
     private var logProductDetail: Boolean = false
     private var discount: Double = 1.0
     private var configuredPurchaseItems: List<PurchaseItem> = emptyList()
@@ -148,11 +157,24 @@ class AppPurchase private constructor() {
         }
     }
 
+    @Deprecated("Never gated anything: IAP revenue is always reported, once per purchase token.")
     fun setEnableTrackingRevenue(enable: Boolean) {
         enableTrackingRevenue = enable
     }
 
+    @Deprecated("Never gated anything: IAP revenue is always reported, once per purchase token.")
     fun getEnableTrackingRevenue(): Boolean = enableTrackingRevenue
+
+    /**
+     * Receives a consumable that no purchase flow is waiting for: a pending payment (e.g. cash)
+     * that completed later — while the app was running or not — or a promo code. Grant its content
+     * here — the SDK consumes it right after this call. Delivered on the main thread. Set before
+     * [initBilling].
+     */
+    fun setRecoveredConsumableListener(listener: ((PurchaseEvent.Success) -> Unit)?) {
+        recoveredConsumableListener = listener
+        processor?.onRecoveredConsumable = listener
+    }
 
     /** Enable or disable verbose Play Store ProductDetails logs. */
     fun setLogProductDetail(enable: Boolean) = apply {
@@ -178,19 +200,49 @@ class AppPurchase private constructor() {
         }
         configuredPurchaseItems = purchaseItemList.toList()
         val repo = ProductDetailsRepository()
-        val vfy = PurchaseVerifier()
+        val vfy = PurchaseVerifier().apply {
+            // Start from what Play confirmed last time, so a premium user sees no ad (splash
+            // included) while billing connects, and keeps premium when the query fails offline.
+            grantEntitlements(cachedEntitlements(application))
+            onEntitlementsVerified = { owned ->
+                SharePreferenceUtils.setVerifiedEntitlementNames(application, owned.mapTo(mutableSetOf()) { it.name })
+            }
+        }
         val connMgr = BillingConnectionManager()
         repository = repo
         verifier = vfy
         connectionManager = connMgr
+        // Becoming premium (purchase, restore or the cached entitlement) stops ad preloading.
+        scope.launch {
+            vfy.isPurchasedFlow().collect { purchased ->
+                if (purchased) whenAdsReady(AdsManager::releasePreloadsForPremium)
+            }
+        }
+        // Purchases that changed outside the app (lapsed renewal, refund, pending payment completed)
+        // are picked up when the app returns to the foreground, as Play recommends, instead of only
+        // on the next cold start. The setup query covers the first start.
+        lastForegroundRefreshAt = SystemClock.elapsedRealtime()
+        AdsProvider.runOnMain {
+            ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
+                override fun onStart(owner: LifecycleOwner) {
+                    connMgr.reconnectIfDisconnected()
+                    val now = SystemClock.elapsedRealtime()
+                    if (!connMgr.isInitBillingFinish || now - lastForegroundRefreshAt < FOREGROUND_REFRESH_INTERVAL_MS) return
+                    lastForegroundRefreshAt = now
+                    triggerUpdatePurchaseStatus(notifyListener = false)
+                }
+            })
+        }
 
         val proc = PurchaseProcessor(
+            context = application,
             connectionManager = connMgr,
             repository = repo,
             verifier = vfy,
             useDevTestPurchase = { AppUtil.VARIANT_DEV },
         ).apply {
             onPurchaseStatusUpdate = { triggerUpdatePurchaseStatus() }
+            onRecoveredConsumable = recoveredConsumableListener
         }
         processor = proc
 
@@ -237,6 +289,9 @@ class AppPurchase private constructor() {
                         repo.productIdMap,
                         shouldConsume = { productId -> repo.shouldConsume(productId) },
                         getEntitlements = { productId -> repo.getEntitlements(productId) },
+                        onRecovered = { purchase, productId, isSubscription ->
+                            proc.onRecovered(purchase, productId, isSubscription)
+                        },
                         onComplete = { code ->
                             AppLogger.i(
                                 TAG,
@@ -275,6 +330,7 @@ class AppPurchase private constructor() {
                                             "subscriptions=${repo.getSubscriptionProductIds()}"
                                     )
                                     productQueryCode = queryResult.responseCode
+                                    proc.onProductDetailsReady()
                                     productQueryDone.set(true)
                                     notifyWhenBillingDataReady()
                                 },
@@ -291,7 +347,7 @@ class AppPurchase private constructor() {
         )
     }
 
-    private fun triggerUpdatePurchaseStatus() {
+    private fun triggerUpdatePurchaseStatus(notifyListener: Boolean = true) {
         AppLogger.d(TAG, "updatePurchaseStatus: started")
         val repo = repository ?: return
         val vfy = verifier ?: return
@@ -302,9 +358,12 @@ class AppPurchase private constructor() {
             repo.productIdMap,
             shouldConsume = { productId -> repo.shouldConsume(productId) },
             getEntitlements = { productId -> repo.getEntitlements(productId) },
+            onRecovered = { purchase, productId, isSubscription ->
+                processor?.onRecovered(purchase, productId, isSubscription)
+            },
             onComplete = {
                 AppLogger.d(TAG, "updatePurchaseStatus: completed")
-                updatePurchaseListener?.onUpdateFinished()
+                if (notifyListener) updatePurchaseListener?.onUpdateFinished()
             }
         )
     }
@@ -313,8 +372,12 @@ class AppPurchase private constructor() {
 
     fun getInitBillingFinish(): Boolean = connectionManager?.isInitBillingFinish ?: false
 
-    /** True iff the user owns the [Entitlement.REMOVE_ADS] entitlement. Every ad-gating check in the SDK reads this. */
-    fun isPurchased(): Boolean = verifier?.isPurchased ?: false
+    /**
+     * True iff the user owns the [Entitlement.REMOVE_ADS] entitlement. Every ad-gating check in the
+     * SDK reads this. Before [initBilling] it answers from the last Play-verified state.
+     */
+    fun isPurchased(): Boolean =
+        verifier?.isPurchased ?: (Entitlement.REMOVE_ADS in cachedEntitlementsBeforeInit())
 
     fun setPurchase(purchase: Boolean) {
         verifier?.isPurchased = purchase
@@ -322,9 +385,17 @@ class AppPurchase private constructor() {
 
     /** True iff the user owns [entitlement] — e.g. [Entitlement.PREMIUM_FEATURES] to gate paid app features independently of ad suppression. */
     fun hasEntitlement(entitlement: Entitlement): Boolean =
-        verifier?.hasEntitlement(entitlement) ?: false
+        verifier?.hasEntitlement(entitlement) ?: (entitlement in cachedEntitlementsBeforeInit())
 
-    fun getOwnedEntitlements(): Set<Entitlement> = verifier?.ownedEntitlements() ?: emptySet()
+    fun getOwnedEntitlements(): Set<Entitlement> = verifier?.ownedEntitlements() ?: cachedEntitlementsBeforeInit()
+
+    private fun cachedEntitlements(context: android.content.Context): Set<Entitlement> {
+        val names = SharePreferenceUtils.getVerifiedEntitlementNames(context) ?: return emptySet()
+        return Entitlement.entries.filterTo(mutableSetOf()) { it.name in names }
+    }
+
+    private fun cachedEntitlementsBeforeInit(): Set<Entitlement> =
+        AdsProvider.getInstance().applicationContextOrNull()?.let(::cachedEntitlements).orEmpty()
 
     fun ownedEntitlementsFlow(): StateFlow<Set<Entitlement>>? = verifier?.ownedEntitlementsFlow()
 
@@ -456,6 +527,7 @@ class AppPurchase private constructor() {
     companion object {
         private const val TAG = "GMA_Purchase"
         private const val DEFAULT_BILLING_LISTENER_TIMEOUT_MS = 5_000
+        private const val FOREGROUND_REFRESH_INTERVAL_MS = 60_000L
         const val PRODUCT_ID_TEST = "android.test.purchased"
 
         @Volatile

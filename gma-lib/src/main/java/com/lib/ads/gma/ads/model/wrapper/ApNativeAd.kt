@@ -2,7 +2,7 @@ package com.lib.ads.gma.ads.model.wrapper
 
 import android.view.View
 import com.google.android.libraries.ads.mobile.sdk.nativead.NativeAd
-import com.lib.ads.gma.ads.helper.extension.extractAdUnitIdOrNull
+import com.lib.ads.gma.ads.helper.extension.adUnitIdOrEmpty
 
 class ApNativeAd : ApAdBase {
     var layoutCustomNative: Int = 0
@@ -42,4 +42,4 @@ class ApNativeAd : ApAdBase {
  * caller who polled a waterfall list (e.g. [com.lib.ads.gma.ads.helper.adnative.NativeAds.get])
  * find out which specific id in the list won, for per-placement fill-rate/show-rate analysis.
  */
-fun ApNativeAd.resolvedAdUnitId(): String? = nativeAd?.getResponseInfo()?.extractAdUnitIdOrNull()
+fun ApNativeAd.resolvedAdUnitId(): String? = nativeAd?.adUnitIdOrEmpty()?.takeIf { it.isNotEmpty() }

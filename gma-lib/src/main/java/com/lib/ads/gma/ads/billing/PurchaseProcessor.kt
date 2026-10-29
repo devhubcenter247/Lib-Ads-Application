@@ -1,9 +1,11 @@
 package com.lib.ads.gma.ads.billing
 
 import android.app.Activity
+import android.content.Context
 import com.lib.ads.gma.ads.event.AdsLogEventManager
 import com.lib.ads.gma.ads.event.FirebaseAnalyticsUtil
 import com.lib.ads.gma.ads.util.AppLogger
+import com.lib.ads.gma.ads.util.SharePreferenceUtils
 import com.android.billingclient.api.AcknowledgePurchaseParams
 import com.android.billingclient.api.BillingClient
 import com.android.billingclient.api.BillingFlowParams
@@ -12,8 +14,10 @@ import com.android.billingclient.api.ConsumeParams
 import com.android.billingclient.api.ProductDetails
 import com.android.billingclient.api.Purchase
 import com.android.billingclient.api.QueryPurchasesParams
+import java.util.concurrent.ConcurrentHashMap
 
 internal class PurchaseProcessor(
+    private val context: Context,
     private val connectionManager: BillingConnectionManager,
     private val repository: ProductDetailsRepository,
     private val verifier: PurchaseVerifier,
@@ -22,10 +26,20 @@ internal class PurchaseProcessor(
 
     var onPurchaseStatusUpdate: (() -> Unit)? = null
 
+    /** Receives consumables that completed while the app was not running (see [onRecovered]). */
+    var onRecoveredConsumable: ((PurchaseEvent.Success) -> Unit)? = null
+
     private var idPurchaseCurrent: String = ""
     private var typeIap: Int = 0
-    private var retryConsumeTimes: Int = 0
     private var purchaseEventCallback: ((PurchaseEvent) -> Unit)? = null
+
+    /** Offer launched per subscription product, so revenue uses the price actually charged. */
+    private val launchedOfferTokens = ConcurrentHashMap<String, String>()
+
+    /** Recovered purchases seen before product details (prices) were loaded. */
+    private val revenueAwaitingPrices = mutableListOf<RecoveredRevenue>()
+
+    private data class RecoveredRevenue(val purchase: Purchase, val productId: String)
 
     fun purchase(activity: Activity, productId: String, onResult: (PurchaseEvent) -> Unit) {
         AppLogger.i(TAG, "purchase: begin productId=$productId, devTestFlow=${useDevTestPurchase()}")
@@ -48,7 +62,7 @@ internal class PurchaseProcessor(
         AppLogger.d(TAG, "purchase: $productDetails")
         purchaseEventCallback = onResult
         idPurchaseCurrent = productId
-        typeIap = 1
+        typeIap = AppPurchase.TYPE_IAP.PURCHASE
 
         val paramsList = listOf(
             BillingFlowParams.ProductDetailsParams.newBuilder()
@@ -90,7 +104,8 @@ internal class PurchaseProcessor(
         AppLogger.d(TAG, "subscribe: offerToken: $offerToken")
         purchaseEventCallback = onResult
         idPurchaseCurrent = subsId
-        typeIap = 2
+        typeIap = AppPurchase.TYPE_IAP.SUBSCRIPTION
+        launchedOfferTokens[subsId] = offerToken
 
         val paramsList = listOf(
             BillingFlowParams.ProductDetailsParams.newBuilder()
@@ -146,7 +161,8 @@ internal class PurchaseProcessor(
         }
         val offerToken = selectOfferToken(skuDetails, newSubsId)
         idPurchaseCurrent = newSubsId
-        typeIap = 2
+        typeIap = AppPurchase.TYPE_IAP.SUBSCRIPTION
+        launchedOfferTokens[newSubsId] = offerToken
 
         val updateParams = BillingFlowParams.SubscriptionUpdateParams.newBuilder()
             .setOldPurchaseToken(oldPurchaseToken)
@@ -201,77 +217,39 @@ internal class PurchaseProcessor(
     }
 
     fun handlePurchase(purchase: Purchase) {
-        AppLogger.i(TAG, "handlePurchase: products=${purchase.products}, state=${purchase.purchaseState}, acknowledged=${purchase.isAcknowledged}, quantity=${purchase.quantity}")
-        val priceMicros = repository.getPriceWithoutCurrency(idPurchaseCurrent, typeIap).toLong()
-        val price = priceMicros / 1_000_000.0
-        val currency = repository.getCurrency(idPurchaseCurrent, typeIap)
-
-        if (typeIap == 2) {
-            AdsLogEventManager.onTrackRevenueSubscription(
-                priceMicros,
-                currency,
-                idPurchaseCurrent,
-                purchase.orderId.toString(),
-                purchase.signature,
-                purchase.purchaseToken
-            )
-        } else {
-            AdsLogEventManager.onTrackRevenuePurchase(
-                price.toFloat(),
-                currency,
-                idPurchaseCurrent,
-                purchase.purchaseToken,
-                typeIap
-            )
-        }
+        // The purchase's own products win: the listener also reports purchases this process did
+        // not start (pending completion, promo code), for which idPurchaseCurrent is stale or "".
+        val productId = PurchaseRevenue.resolveProductId(purchase.products, repository::isConfigured, idPurchaseCurrent)
+        val isSubscription = (repository.getType(productId) ?: typeIap) == AppPurchase.TYPE_IAP.SUBSCRIPTION
+        AppLogger.i(TAG, "handlePurchase: productId=$productId, subs=$isSubscription, state=${purchase.purchaseState}, acknowledged=${purchase.isAcknowledged}, quantity=${purchase.quantity}")
 
         when (purchase.purchaseState) {
             Purchase.PurchaseState.PENDING -> {
+                // Not paid yet — no entitlement, no revenue. It is handled when it turns PURCHASED
+                // (this listener, or the next refresh if the app is gone by then).
                 AppLogger.d(TAG, "handlePurchase: PENDING — awaiting payment completion")
-                purchaseEventCallback?.invoke(PurchaseEvent.Pending(idPurchaseCurrent))
+                purchaseEventCallback?.invoke(PurchaseEvent.Pending(productId))
                 purchaseEventCallback = null
-
-                return
             }
             Purchase.PurchaseState.PURCHASED -> {
-                val consume = repository.shouldConsume(idPurchaseCurrent)
-                AppLogger.i(TAG, "handlePurchase: purchased productId=$idPurchaseCurrent, consume=$consume")
+                val consume = repository.shouldConsume(productId)
+                AppLogger.i(TAG, "handlePurchase: purchased productId=$productId, consume=$consume")
                 if (!consume) {
-                    verifier.grantEntitlements(repository.getEntitlements(idPurchaseCurrent))
+                    verifier.grantEntitlements(repository.getEntitlements(productId))
+                } else {
+                    // Delivered now; a later refresh must not hand it out again.
+                    val firstDelivery = SharePreferenceUtils.markPurchaseTrackedIfNew(context, grantKey(purchase))
+                    // No purchase flow is waiting (a pending payment completed later, a promo code
+                    // redeemed while the app runs): without this the item was consumed and the user
+                    // paid for nothing.
+                    if (firstDelivery && purchaseEventCallback == null) deliverRecoveredConsumable(purchase, productId)
                 }
                 purchaseEventCallback?.invoke(
-                    PurchaseEvent.Success(purchase.orderId, idPurchaseCurrent, purchase.originalJson)
+                    PurchaseEvent.Success(purchase.orderId, productId, purchase.originalJson)
                 )
                 purchaseEventCallback = null
-
-                val billingClient = connectionManager.getBillingClient()
-                if (consume) {
-                    val consumeParams = ConsumeParams.newBuilder()
-                        .setPurchaseToken(purchase.purchaseToken)
-                        .build()
-                    billingClient?.consumeAsync(consumeParams) { billingResult, _ ->
-                        AppLogger.d(TAG, "onConsumeResponse: code=${billingResult.responseCode}, message=${billingResult.debugMessage}")
-                    }
-                } else {
-                    val ackParams = AcknowledgePurchaseParams.newBuilder()
-                        .setPurchaseToken(purchase.purchaseToken)
-                        .build()
-                    if (!purchase.isAcknowledged) {
-                        billingClient?.acknowledgePurchase(ackParams) { billingResult ->
-                            AppLogger.d(TAG, "onAcknowledgePurchaseResponse: code=${billingResult.responseCode}, message=${billingResult.debugMessage}")
-                            if (billingResult.responseCode == BillingClient.BillingResponseCode.OK) {
-                                val orderId = purchase.orderId
-                                if (orderId != null) {
-                                    FirebaseAnalyticsUtil.logConfirmPurchaseGoogle(
-                                        orderId,
-                                        idPurchaseCurrent,
-                                        purchase.purchaseToken
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
+                trackRevenueOnce(purchase, productId, isSubscription, launchedOfferTokens[productId])
+                completePurchase(purchase, productId, consume)
             }
             else -> {
                 AppLogger.w(TAG, "handlePurchase: unknown state ${purchase.purchaseState}, skipping")
@@ -279,41 +257,144 @@ internal class PurchaseProcessor(
         }
     }
 
-    fun consumePurchase(productId: String) {
-        AppLogger.d(TAG, "consumePurchase: $productId")
-        retryConsumeTimes = 0
+    private fun completePurchase(purchase: Purchase, productId: String, consume: Boolean) {
         val billingClient = connectionManager.getBillingClient()
+        if (consume) {
+            val consumeParams = ConsumeParams.newBuilder()
+                .setPurchaseToken(purchase.purchaseToken)
+                .build()
+            billingClient?.consumeAsync(consumeParams) { billingResult, _ ->
+                AppLogger.d(TAG, "onConsumeResponse: code=${billingResult.responseCode}, message=${billingResult.debugMessage}")
+            }
+            return
+        }
+        // A failed acknowledge is retried by the next refresh (PurchaseVerifier acknowledges any
+        // purchased-but-unacknowledged purchase), so it is not refunded after 3 days.
+        if (purchase.isAcknowledged) return
+        val ackParams = AcknowledgePurchaseParams.newBuilder()
+            .setPurchaseToken(purchase.purchaseToken)
+            .build()
+        billingClient?.acknowledgePurchase(ackParams) { billingResult ->
+            AppLogger.d(TAG, "onAcknowledgePurchaseResponse: code=${billingResult.responseCode}, message=${billingResult.debugMessage}")
+            if (billingResult.responseCode == BillingClient.BillingResponseCode.OK) {
+                purchase.orderId?.let { orderId ->
+                    FirebaseAnalyticsUtil.logConfirmPurchaseGoogle(orderId, productId, purchase.purchaseToken)
+                }
+            }
+        }
+    }
+
+    /**
+     * Called by [PurchaseVerifier] for a purchased-but-unacknowledged purchase found on refresh:
+     * it completed while the app was not running, so its revenue was never reported. A consumable
+     * is also handed to [onRecoveredConsumable] — the verifier consumes it right after, and without
+     * that callback the user would have paid for nothing.
+     */
+    fun onRecovered(purchase: Purchase, productId: String, isSubscription: Boolean) {
+        if (!isSubscription && repository.shouldConsume(productId) &&
+            SharePreferenceUtils.markPurchaseTrackedIfNew(context, grantKey(purchase))
+        ) {
+            deliverRecoveredConsumable(purchase, productId)
+        }
+        // ponytail: the offer behind a recovered subscription is unknown (a trial looks like the
+        // base plan), so its start revenue is skipped rather than guessed; Adjust/AppsFlyer
+        // server-side subscription tracking covers it when enabled.
+        if (isSubscription) return
+        if (repository.inAppPrice(productId) == null) {
+            synchronized(revenueAwaitingPrices) { revenueAwaitingPrices += RecoveredRevenue(purchase, productId) }
+            return
+        }
+        trackRevenueOnce(purchase, productId, isSubscription = false, offerToken = null)
+    }
+
+    private fun grantKey(purchase: Purchase) = "grant:" + purchase.purchaseToken
+
+    /** Hands a consumable that no purchase flow is waiting for to [onRecoveredConsumable]. */
+    private fun deliverRecoveredConsumable(purchase: Purchase, productId: String) {
+        val listener = onRecoveredConsumable
+        if (listener == null) {
+            AppLogger.w(TAG, "consumable $productId consumed without an onRecoveredConsumable listener")
+            return
+        }
+        com.lib.ads.gma.ads.engine.AdsProvider.runOnMain {
+            listener(PurchaseEvent.Success(purchase.orderId, productId, purchase.originalJson))
+        }
+    }
+
+    /** Product details finished loading: report recovered purchases that were waiting for a price. */
+    fun onProductDetailsReady() {
+        val waiting = synchronized(revenueAwaitingPrices) {
+            revenueAwaitingPrices.toList().also { revenueAwaitingPrices.clear() }
+        }
+        waiting.forEach { trackRevenueOnce(it.purchase, it.productId, isSubscription = false, offerToken = null) }
+    }
+
+    /**
+     * Reports one purchase's revenue to Adjust / AppsFlyer at most once per purchase token, across
+     * the purchase listener, refreshes and process restarts.
+     */
+    private fun trackRevenueOnce(purchase: Purchase, productId: String, isSubscription: Boolean, offerToken: String?) {
+        val price = if (isSubscription) {
+            repository.subscriptionStartPrice(productId, offerToken)
+        } else {
+            repository.inAppPrice(productId)
+        }
+        if (price == null) {
+            AppLogger.w(TAG, "trackRevenue: no price for productId=$productId (product details not loaded)")
+            return
+        }
+        if (!SharePreferenceUtils.markPurchaseTrackedIfNew(context, purchase.purchaseToken)) {
+            AppLogger.d(TAG, "trackRevenue: already tracked productId=$productId")
+            return
+        }
+        if (price.micros <= 0L) {
+            AppLogger.d(TAG, "trackRevenue: free phase (trial) productId=$productId, nothing to report")
+            return
+        }
+        if (isSubscription) {
+            AdsLogEventManager.trackSubscriptionRevenue(
+                priceMicros = price.micros,
+                currency = price.currency,
+                productId = productId,
+                orderId = purchase.orderId.orEmpty(),
+                signature = purchase.signature,
+                purchaseToken = purchase.purchaseToken,
+                purchaseTime = purchase.purchaseTime,
+            )
+        } else {
+            val quantity = purchase.quantity.coerceAtLeast(1)
+            AdsLogEventManager.trackPurchaseRevenue(
+                revenue = price.micros * quantity / 1_000_000.0,
+                currency = price.currency,
+                productId = productId,
+                purchaseToken = purchase.purchaseToken,
+                orderId = purchase.orderId,
+            )
+        }
+    }
+
+    fun consumePurchase(productId: String) = consumePurchase(productId, attempt = 0)
+
+    private fun consumePurchase(productId: String, attempt: Int) {
+        AppLogger.d(TAG, "consumePurchase: $productId attempt=$attempt")
+        val billingClient = connectionManager.getBillingClient() ?: return
         val queryParams = QueryPurchasesParams.newBuilder()
             .setProductType(BillingClient.ProductType.INAPP)
             .build()
-        billingClient?.queryPurchasesAsync(queryParams) { billingResult, list ->
-            var pc: Purchase? = null
-            if (billingResult.responseCode == BillingClient.BillingResponseCode.OK) {
-                for (purchase in list) {
-                    if (purchase.products.contains(productId)) {
-                        pc = purchase
-                    }
-                }
-            }
-            if (pc == null) return@queryPurchasesAsync
+        billingClient.queryPurchasesAsync(queryParams) { billingResult, list ->
+            if (billingResult.responseCode != BillingClient.BillingResponseCode.OK) return@queryPurchasesAsync
+            val purchase = list.lastOrNull { productId in it.products } ?: return@queryPurchasesAsync
             try {
                 val consumeParams = ConsumeParams.newBuilder()
-                    .setPurchaseToken(pc.purchaseToken)
+                    .setPurchaseToken(purchase.purchaseToken)
                     .build()
                 billingClient.consumeAsync(consumeParams) { result, _ ->
                     if (result.responseCode == BillingClient.BillingResponseCode.OK) {
-                        AppLogger.e(TAG, "onConsumeResponse: OK")
-                        retryConsumeTimes = 0
+                        AppLogger.d(TAG, "onConsumeResponse: OK")
                         onPurchaseStatusUpdate?.invoke()
                     } else {
                         AppLogger.e(TAG, "consumePurchase: error code=${result.responseCode}, message=${result.debugMessage}")
-                        if (retryConsumeTimes >= MAX_RETRY_CONSUME_TIMES) {
-                            retryConsumeTimes = 0
-                        } else {
-                            retryConsumeTimes++
-                            AppLogger.w(TAG, "consumePurchase: retry=$retryConsumeTimes productId=$productId")
-                            consumePurchase(productId)
-                        }
+                        if (attempt < MAX_RETRY_CONSUME_TIMES) consumePurchase(productId, attempt + 1)
                     }
                 }
             } catch (e: Exception) {

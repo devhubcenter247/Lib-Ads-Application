@@ -1,6 +1,7 @@
 package com.lib.ads.gma.ads.manager
 
 import com.lib.ads.gma.ads.util.AppLogger
+import com.lib.ads.gma.ads.util.runOnMain
 import android.app.Activity
 import android.content.Context
 import android.os.SystemClock
@@ -23,10 +24,11 @@ import com.google.android.libraries.ads.mobile.sdk.nativead.NativeAdView
 import com.lib.ads.gma.ads.billing.AppPurchase
 import com.lib.ads.gma.ads.engine.AdsProvider
 import com.lib.ads.gma.ads.engine.whenAdsReady
+import com.lib.ads.gma.ads.event.AdHealthEvents
 import com.lib.ads.gma.ads.event.AdsLogEventManager
 import com.lib.ads.gma.ads.helper.adnative.NativeAdRequestOptions
 import com.lib.ads.gma.ads.helper.adnative.toNativeAdRequest
-import com.lib.ads.gma.ads.helper.extension.extractAdUnitIdOrNull
+import com.lib.ads.gma.ads.helper.extension.adUnitIdOrEmpty
 import com.lib.ads.gma.ads.model.AdType
 import com.lib.ads.gma.ads.model.wrapper.ApAdError
 import com.lib.ads.gma.ads.model.wrapper.ApNativeAd
@@ -153,13 +155,18 @@ object NativeAdManager {
         if (context.resources.getStringArray(R.array.list_id_test).contains(id)) AdsManager.showTestIdAlert(context, AdsManager.NATIVE_ADS, id)
 
         val request = options.toNativeAdRequest(id)
+        // The Next-Gen SDK calls load callbacks on a background thread. Callers populate views and
+        // run waterfall timers on main, so the result is delivered there.
+        val startedAt = AdHealthEvents.now()
         val loaderCallback = object : NativeAdLoaderCallback {
             override fun onNativeAdLoaded(nativeAd: NativeAd) {
-                callback.onLoaded(ApNativeAd(layoutCustomNative, nativeAd))
+                AdHealthEvents.loadFinished(AdType.NATIVE, id, startedAt, null)
+                runOnMain { callback.onLoaded(ApNativeAd(layoutCustomNative, nativeAd)) }
             }
 
             override fun onAdFailedToLoad(adError: LoadAdError) {
-                callback.onFailed(ApAdError(adError))
+                AdHealthEvents.loadFinished(AdType.NATIVE, id, startedAt, adError)
+                runOnMain { callback.onFailed(ApAdError(adError)) }
             }
         }
         if (maxNumberOfAds != null) {
@@ -221,32 +228,37 @@ object NativeAdManager {
      * can still get event tracking, which [bindNativeAdView] alone doesn't give them.
      */
     fun bindNativeAdEventCallback(context: Context, nativeAd: NativeAd, listener: NativeAdListener? = null) {
+        // Application context only: the callback lives as long as the ad, which can outlive the
+        // screen (preload buffers, offered late fills).
+        val appContext = context.applicationContext
         val wrappedAd = ApNativeAd(0, nativeAd)
-        val adUnitId = nativeAd.getResponseInfo().extractAdUnitIdOrNull().orEmpty()
+        val adUnitId = nativeAd.adUnitIdOrEmpty()
+        // SDK callbacks arrive on a background thread: analytics stays there, [listener] calls are
+        // delivered on the main thread in arrival order (holders flip UI state from them).
         nativeAd.adEventCallback = object : NativeAdEventCallback {
             override fun onAdClicked() {
-                AdsLogEventManager.logClickAdsEvent(context, adUnitId)
-                listener?.onClicked(wrappedAd)
+                AdsLogEventManager.logClickAdsEvent(appContext, adUnitId)
+                runOnMain { listener?.onClicked(wrappedAd) }
             }
             override fun onAdImpression() {
-                AdsLogEventManager.onTrackImpression(context)
-                listener?.onImpression(wrappedAd)
+                AdsLogEventManager.onTrackImpression(appContext)
+                runOnMain { listener?.onImpression(wrappedAd) }
             }
             override fun onAdPaid(value: AdValue) {
-                AdsLogEventManager.logPaidAdImpression(context, value, nativeAd.getResponseInfo(), AdType.NATIVE)
-                listener?.onPaid(value)
+                AdsLogEventManager.logPaidAdImpression(appContext, value, nativeAd, AdType.NATIVE)
+                runOnMain { listener?.onPaid(value) }
             }
             override fun onAdShowedFullScreenContent() {
-                listener?.onShownFullScreenContent(wrappedAd)
+                runOnMain { listener?.onShownFullScreenContent(wrappedAd) }
             }
             override fun onAdDismissedFullScreenContent() {
-                listener?.onDismissedFullScreenContent(wrappedAd)
+                runOnMain { listener?.onDismissedFullScreenContent(wrappedAd) }
             }
             override fun onAdFailedToShowFullScreenContent(fullScreenContentError: com.google.android.libraries.ads.mobile.sdk.common.FullScreenContentError) {
-                listener?.onFailedToShowFullScreenContent(wrappedAd, ApAdError(fullScreenContentError))
+                runOnMain { listener?.onFailedToShowFullScreenContent(wrappedAd, ApAdError(fullScreenContentError)) }
             }
             override fun onAdSwipeGestureClicked() {
-                listener?.onSwipeGestureClicked(wrappedAd)
+                runOnMain { listener?.onSwipeGestureClicked(wrappedAd) }
             }
         }
     }

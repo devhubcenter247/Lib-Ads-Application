@@ -253,6 +253,21 @@ object NativeAds {
         AdLogger.d(AdFormat.NATIVE, tag, "PRELOAD_STOP", "cached=${tagCaches.get(tag)?.size ?: 0}")
     }
 
+    /**
+     * Low memory: destroys the buffered (not yet shown) native ads, which hold views and media.
+     * Ads already on screen are not touched; the next request loads fresh ones.
+     */
+    internal fun trimBuffers() {
+        scope.launch {
+            tagCaches.snapshot().keys.forEach { tag ->
+                // remove() does not go through the eviction branch of entryRemoved: destroy here.
+                tagCaches.remove(tag)?.forEach { runCatching { it.nativeAd?.destroy() } }
+                preloadStartedAt.remove(tag)
+                if (preloadJobs[tag]?.isActive != true) state(tag).value = PreloadBufferState.Idle
+            }
+        }
+    }
+
     fun stateFlow(tag: String): StateFlow<PreloadBufferState> = state(tag)
     fun available(tag: String): Int {
         val spec = specs[tag] ?: return 0

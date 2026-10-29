@@ -13,10 +13,11 @@ import com.lib.ads.gma.ads.engine.AdsProvider
 import com.lib.ads.gma.ads.helper.extension.extractAdUnitIdOrNull
 import com.lib.ads.gma.ads.model.AdType
 import com.lib.ads.gma.ads.util.AppLogger
-import java.util.Locale
 
 object AdsAppsflyer {
     private const val TAG = "AdsAppsflyer"
+    const val CONTENT_TYPE_INAPP = "inapp"
+    const val CONTENT_TYPE_SUBS = "subs"
 
     @Volatile
     private var connected = false
@@ -28,12 +29,14 @@ object AdsAppsflyer {
     var events: Set<AdsTrackEvent> = AdsTrackEvent.DEFAULT
 
     @JvmStatic
+    @JvmOverloads
     fun connect(
         application: Application,
         devKey: String,
         debug: Boolean = false,
         events: Set<AdsTrackEvent> = AdsTrackEvent.DEFAULT,
         alreadyInitialized: Boolean = false,
+        enableTCFDataCollection: Boolean = true,
     ) {
         if (connected) return
         if (devKey.isBlank() && !alreadyInitialized) return
@@ -43,6 +46,8 @@ object AdsAppsflyer {
         val appsflyer = AppsFlyerLib.getInstance()
         appsflyer.setDebugLog(debug)
         if (!alreadyInitialized) {
+            // Must precede start(): AppsFlyer reads the TCF string stored by UMP on launch.
+            if (enableTCFDataCollection) appsflyer.enableTCFDataCollection(true)
             appsflyer.init(devKey, null, application)
             appsflyer.start(application)
         }
@@ -61,22 +66,24 @@ object AdsAppsflyer {
         adValue: AdValue,
         responseInfo: ResponseInfo,
         adType: AdType,
-    ) {
+    ) = logPaidAdImpression(
+        PaidImpression.from(adValue, responseInfo, adType, responseInfo.extractAdUnitIdOrNull().orEmpty(), 0L)
+    )
+
+    internal fun logPaidAdImpression(impression: PaidImpression) {
         if (!enableAppsflyer || AdsTrackEvent.AD_REVENUE !in events) return
-        val loadedSource = responseInfo.loadedAdSourceResponseInfo
-        val revenue = adValue.valueMicros / 1_000_000.0
         runCatching {
             AppsFlyerLib.getInstance().logAdRevenue(
                 AFAdRevenueData(
-                    loadedSource?.name?.takeIf { it.isNotBlank() } ?: "admob",
+                    impression.adSourceName,
                     MediationNetwork.GOOGLE_ADMOB,
-                    adValue.currencyCode,
-                    revenue,
+                    impression.currency,
+                    impression.value,
                 ),
                 mapOf(
-                    AdRevenueScheme.AD_UNIT to responseInfo.extractAdUnitIdOrNull().orEmpty(),
-                    AdRevenueScheme.AD_TYPE to adType.name.lowercase(Locale.US),
-                    AdRevenueScheme.PLACEMENT to (loadedSource?.adapterClassName ?: ""),
+                    AdRevenueScheme.AD_UNIT to impression.adUnitId,
+                    AdRevenueScheme.AD_TYPE to impression.adFormat,
+                    AdRevenueScheme.PLACEMENT to impression.placement,
                 ),
             )
         }.onFailure {
@@ -98,17 +105,27 @@ object AdsAppsflyer {
         revenue: Double,
         currency: String,
         productId: String,
+    ) = logPurchase(context, revenue, currency, productId, CONTENT_TYPE_INAPP, orderId = null)
+
+    /** In-app products and subscriptions both land on `af_purchase`, told apart by `af_content_type`. */
+    @JvmStatic
+    fun logPurchase(
+        context: Context,
+        revenue: Double,
+        currency: String,
+        productId: String,
+        contentType: String,
+        orderId: String?,
     ) {
         if (!enableAppsflyer || AdsTrackEvent.PURCHASE !in events) return
-        AppsFlyerLib.getInstance().logEvent(
-            context,
-            "af_purchase",
-            mapOf(
-                "af_revenue" to revenue,
-                "af_currency" to currency,
-                "af_content_id" to productId,
-            ),
-        )
+        val values = buildMap<String, Any> {
+            put("af_revenue", revenue)
+            put("af_currency", currency)
+            put("af_content_id", productId)
+            put("af_content_type", contentType)
+            orderId?.takeIf { it.isNotBlank() }?.let { put("af_order_id", it) }
+        }
+        AppsFlyerLib.getInstance().logEvent(context, "af_purchase", values)
     }
 
     @JvmStatic
@@ -119,6 +136,11 @@ object AdsAppsflyer {
     ) {
         val context = AdsProvider.getInstance().applicationContextOrNull() ?: return
         logPurchase(context, revenue, currency, productId)
+    }
+
+    internal fun logPurchase(revenue: Double, currency: String, productId: String, contentType: String, orderId: String?) {
+        val context = AdsProvider.getInstance().applicationContextOrNull() ?: return
+        logPurchase(context, revenue, currency, productId, contentType, orderId)
     }
 
     @Suppress("DEPRECATION")

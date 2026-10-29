@@ -49,7 +49,8 @@ internal class NativePreloadRequestController(
         // NativeAdManager reports through a later SDK callback, after this coroutine may already
         // have completed. A Job.isActive check alone therefore cannot prevent duplicate loads.
         // A canceled job means the caller explicitly requested a replacement via reload().
-        if (loadInFlight && job?.isCancelled != true) return job!!
+        val current = job
+        if (loadInFlight && current != null && !current.isCancelled) return current
         loadInFlight = true
         job?.cancel()
         return scope.launch(Dispatchers.Main.immediate) { load() }.also { job = it }

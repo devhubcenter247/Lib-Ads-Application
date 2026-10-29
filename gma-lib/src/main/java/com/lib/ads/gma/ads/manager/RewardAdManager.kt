@@ -9,8 +9,9 @@ import com.lib.ads.gma.gma.R
 import com.lib.ads.gma.ads.billing.AppPurchase
 import com.lib.ads.gma.ads.engine.AdsProvider
 import com.lib.ads.gma.ads.engine.whenAdsReady
+import com.lib.ads.gma.ads.event.AdHealthEvents
 import com.lib.ads.gma.ads.event.AdsLogEventManager
-import com.lib.ads.gma.ads.helper.extension.extractAdUnitIdOrNull
+import com.lib.ads.gma.ads.helper.extension.adUnitIdOrEmpty
 import com.lib.ads.gma.ads.helper.fullscreen.dismissSafely
 import com.lib.ads.gma.ads.model.AdType
 import com.lib.ads.gma.ads.model.wrapper.*
@@ -34,7 +35,9 @@ object RewardAdManager {
     private const val REWARD_TRANSITION_COVER_DELAY_MS = 250L
     private const val TAG = "RewardAdManager"
 
+    // Premium users never load rewarded ads; the preloader would otherwise keep refilling.
     fun preloadRewardAd(id: String, placementId: Long? = null) = whenAdsReady {
+        if (AppPurchase.getInstance().isPurchased()) return@whenAdsReady
         RewardedAdPreloader.start(id, PreloadConfiguration(AdsManager.getAdRequest(id, placementId)))
     }
 
@@ -42,6 +45,7 @@ object RewardAdManager {
         RewardedAdPreloader.pollAd(id)?.let(::ApRewardAd)
 
     fun preloadRewardInterstitialAd(id: String, placementId: Long? = null) = whenAdsReady {
+        if (AppPurchase.getInstance().isPurchased()) return@whenAdsReady
         RewardedInterstitialAdPreloader.start(
             id,
             PreloadConfiguration(AdsManager.getAdRequest(id, placementId)),
@@ -57,16 +61,20 @@ object RewardAdManager {
             if (context.resources.getStringArray(R.array.list_id_test).contains(id)) AdsManager.showTestIdAlert(context, AdsManager.REWARD_ADS, id)
         }
         if (AppPurchase.getInstance().isPurchased()) {
-            listener.onFailed(ApAdError("App is purchased")); return
+            runOnMain { if (!listener.onPremiumUser()) listener.onFailed(ApAdError("App is purchased")) }
+            return
         }
+        // The Next-Gen SDK calls load callbacks on a background thread; listeners get main.
+        val startedAt = AdHealthEvents.now()
         RewardedAd.load(AdsManager.getAdRequest(id, placementId), object : AdLoadCallback<RewardedAd> {
             override fun onAdLoaded(ad: RewardedAd) {
-                listener.onLoaded(ApRewardAd(ad))
+                AdHealthEvents.loadFinished(AdType.REWARDED, id, startedAt, null)
+                runOnMain { listener.onLoaded(ApRewardAd(ad)) }
             }
 
             override fun onAdFailedToLoad(adError: LoadAdError) {
-                super.onAdFailedToLoad(adError)
-                listener.onFailed(ApAdError(adError))
+                AdHealthEvents.loadFinished(AdType.REWARDED, id, startedAt, adError)
+                runOnMain { listener.onFailed(ApAdError(adError)) }
             }
         })
     }
@@ -82,18 +90,22 @@ object RewardAdManager {
             if (context.resources.getStringArray(R.array.list_id_test).contains(id)) AdsManager.showTestIdAlert(context, AdsManager.REWARD_ADS, id)
         }
         if (AppPurchase.getInstance().isPurchased()) {
-            listener.onFailed(ApAdError("App is purchased")); return
+            runOnMain { if (!listener.onPremiumUser()) listener.onFailed(ApAdError("App is purchased")) }
+            return
         }
+        val startedAt = AdHealthEvents.now()
         RewardedInterstitialAd.load(AdsManager.getAdRequest(id, placementId), object : AdLoadCallback<RewardedInterstitialAd> {
             override fun onAdLoaded(ad: RewardedInterstitialAd) {
+                AdHealthEvents.loadFinished(AdType.REWARDED_INTERSTITIAL, id, startedAt, null)
                 ssvCustomData?.takeIf { it.isNotEmpty() }?.let {
                     ad.setServerSideVerificationOptions(ServerSideVerificationOptions("", it))
                 }
-                listener.onLoaded(ApRewardAd(ad))
+                runOnMain { listener.onLoaded(ApRewardAd(ad)) }
             }
 
             override fun onAdFailedToLoad(adError: LoadAdError) {
-                listener.onFailed(ApAdError(adError))
+                AdHealthEvents.loadFinished(AdType.REWARDED_INTERSTITIAL, id, startedAt, adError)
+                runOnMain { listener.onFailed(ApAdError(adError)) }
             }
         })
     }
@@ -150,6 +162,7 @@ object RewardAdManager {
         adUnitId: String,
         placementId: Long? = null,
     ) = whenAdsReady {
+        if (AppPurchase.getInstance().isPurchased()) return@whenAdsReady
         RewardedInterstitialAdPreloader.start(
             preloadId,
             PreloadConfiguration(AdsManager.getAdRequest(adUnitId, placementId)),
@@ -188,8 +201,20 @@ object RewardAdManager {
 
     fun forceShowRewardAd(activity: Activity, ad: ApRewardAd?, listener: RewardAdListener) {
         if (Looper.myLooper() != Looper.getMainLooper()) { AdsProvider.MAIN.post { forceShowRewardAd(activity, ad, listener) }; return }
+        if (premiumHandled(listener)) return
         if (ad == null || !ad.isReady()) { Log.e(TAG, "forceShowRewardAd: ad not ready"); listener.onNotReady(); return }
         showReward(activity, ad, null, listener)
+    }
+
+    /**
+     * A premium user's rewarded request: true when the app took it over via
+     * [RewardAdListener.onPremiumUser]. Checked before any "not ready" — a premium user never has
+     * a cached ad, so that path would otherwise hide the premium case.
+     */
+    private fun premiumHandled(listener: RewardAdListener, waitingDialog: Dialog? = null): Boolean {
+        if (!AppPurchase.getInstance().isPurchased() || !listener.onPremiumUser()) return false
+        waitingDialog.dismissSafely()
+        return true
     }
 
     fun loadReward(id: String, listener: RewardAdListener, placementId: Long? = null) =
@@ -200,6 +225,7 @@ object RewardAdManager {
         loadRewardAdList(tag, ids, listener, placementId)
 
     fun showReward(activity: Activity, tag: String, listener: RewardAdListener, waitingDialog: Dialog? = null) {
+        if (premiumHandled(listener, waitingDialog)) return
         val ad = FullScreenAdLruCache.pollReward(tag)
         if (ad == null) { listener.onNotReady(); return }
         showReward(activity, ad, null, listener, waitingDialog)
@@ -219,6 +245,8 @@ object RewardAdManager {
             override fun onRewardedAdClosed(ad: ApRewardAd, earnedReward: Boolean) = listener.onRewardedAdClosed(ad, earnedReward)
             override fun onFailedToShow(error: ApAdError) { listener.onFailedToShow(error); onNextAction?.invoke() }
             override fun onNotReady() { listener.onNotReady(); onNextAction?.invoke() }
+            override fun onPremiumUser(): Boolean =
+                listener.onPremiumUser().also { handled -> if (handled) onNextAction?.invoke() }
         }, waitingDialog)
     }
 
@@ -241,6 +269,7 @@ object RewardAdManager {
         listener: RewardAdListener,
         waitingDialog: Dialog? = null,
     ) {
+        if (premiumHandled(listener, waitingDialog)) return
         val ad = FullScreenAdLruCache.pollRewardInterstitial(tag)
         if (ad == null) {
             listener.onNotReady()
@@ -267,16 +296,18 @@ object RewardAdManager {
         if (AppPurchase.getInstance().isPurchased()) {
             waitingDialog.dismissSafely()
             AdsProvider.getInstance().setFullScreenAdShowing(false)
-            listener.onFailedToShow(ApAdError("App is purchased"))
+            if (!listener.onPremiumUser()) listener.onFailedToShow(ApAdError("App is purchased"))
             return
         }
         // SDK callbacks arrive on a background thread; every listener call is marshalled to main in
         // arrival order, so the reward flag is already set when the dismiss post runs.
         val earnedReward = AtomicBoolean(false)
-        if (apAd.isRewardInterstitial()) {
-            val ad = apAd.rewardInterstitial!!
-            val responseInfo = ad.getResponseInfo()
-            val adUnitId = responseInfo.extractAdUnitIdOrNull().orEmpty()
+        // Read once: the wrapper's fields are public vars and may be cleared after isReady().
+        val rewardInterstitial = apAd.rewardInterstitial
+        val rewardType = if (rewardInterstitial != null) AdType.REWARDED_INTERSTITIAL else AdType.REWARDED
+        if (rewardInterstitial != null) {
+            val ad = rewardInterstitial
+            val adUnitId = ad.adUnitIdOrEmpty()
             ad.adEventCallback =(object : RewardedInterstitialAdEventCallback {
                 override fun onAdDismissedFullScreenContent() = runOnMain {
                     waitingDialog.dismissSafely()
@@ -286,6 +317,7 @@ object RewardAdManager {
                 }
 
                 override fun onAdFailedToShowFullScreenContent(fullScreenContentError: FullScreenContentError) = runOnMain {
+                    AdHealthEvents.showFailed(rewardType, adUnitId, fullScreenContentError.message)
                     waitingDialog.dismissSafely()
                     AdsProvider.getInstance().setFullScreenAdShowing(false)
                     listener.onFailedToShow(ApAdError(fullScreenContentError.message))
@@ -308,7 +340,7 @@ object RewardAdManager {
                 }
 
                 override fun onAdPaid(value: AdValue) {
-                    AdsLogEventManager.logPaidAdImpression(activity, value, responseInfo, AdType.REWARDED)
+                    AdsLogEventManager.logPaidAdImpression(activity, value, ad, AdType.REWARDED_INTERSTITIAL)
                     runOnMain { listener.onPaid(value) }
                 }
                 override fun onAdMetadataChanged() = runOnMain {
@@ -320,9 +352,13 @@ object RewardAdManager {
                 runOnMain { listener.onRewarded(apAd, ApRewardItem(rewardItem)) }
             }
         } else {
-            val ad = apAd.rewardAd!!
-            val responseInfo = ad.getResponseInfo()
-            val adUnitId = responseInfo.extractAdUnitIdOrNull().orEmpty()
+            val ad = apAd.rewardAd ?: run {
+                waitingDialog.dismissSafely()
+                AdsProvider.getInstance().setFullScreenAdShowing(false)
+                listener.onNotReady()
+                return
+            }
+            val adUnitId = ad.adUnitIdOrEmpty()
             ad.adEventCallback =(object : RewardedAdEventCallback {
                 override fun onAdDismissedFullScreenContent() = runOnMain {
                     waitingDialog.dismissSafely()
@@ -332,6 +368,7 @@ object RewardAdManager {
                 }
 
                 override fun onAdFailedToShowFullScreenContent(fullScreenContentError: FullScreenContentError) = runOnMain {
+                    AdHealthEvents.showFailed(rewardType, adUnitId, fullScreenContentError.message)
                     waitingDialog.dismissSafely()
                     AdsProvider.getInstance().setFullScreenAdShowing(false)
                     listener.onFailedToShow(ApAdError(fullScreenContentError.message))
@@ -354,7 +391,7 @@ object RewardAdManager {
                 }
 
                 override fun onAdPaid(adValue: AdValue) {
-                    AdsLogEventManager.logPaidAdImpression(activity, adValue, responseInfo, AdType.REWARDED)
+                    AdsLogEventManager.logPaidAdImpression(activity, adValue, ad, AdType.REWARDED)
                     runOnMain { listener.onPaid(adValue) }
                 }
                 override fun onAdMetadataChanged() = runOnMain {

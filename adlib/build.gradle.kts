@@ -75,29 +75,31 @@ dependencies {
     api("com.google.android.gms:play-services-ads-identifier:18.3.0")
     api("com.google.android.gms:play-services-appset:16.1.0")
     api("com.google.android.gms:play-services-basement:18.10.0")
-    api("com.google.android.ump:user-messaging-platform:4.0.0")
+    api(libs.ump)
     api("com.google.android.play:review-ktx:2.0.2")
 
     // Firebase
-    api("com.google.firebase:firebase-analytics:23.2.0")
+    api(libs.firebase.analytics)
 
     // Billing
-    api("com.android.billingclient:billing-ktx:9.1.0")
+    api(libs.billing.ktx)
 
     // Analytics SDKs
-    api("com.adjust.sdk:adjust-android:5.7.0")
-    api("com.appsflyer:adrevenue:6.9.1")
-    api("com.facebook.android:facebook-android-sdk:18.2.3")
+    api(libs.adjust.android)
+    // AdAppsflyer uses the AppsFlyer 6.x API; adrevenue alone only pulls af-android-sdk 5.1.0.
+    api(libs.appsflyer.sdk)
+    api(libs.appsflyer.adrevenue)
+    api(libs.facebook.sdk)
     compileOnly("com.facebook.infer.annotation:infer-annotation:0.18.0")
 
     // Mediation Adapters
-    api("com.google.ads.mediation:facebook:6.21.0.3")
-    api("com.facebook.android:audience-network-sdk:6.21.0")
-    api("com.google.ads.mediation:mintegral:17.1.61.0")
-    api("com.google.ads.mediation:pangle:8.0.0.4.0")
+    api(libs.mediation.facebook)
+    api(libs.audience.network.sdk)
+    api(libs.mediation.mintegral)
+    api(libs.mediation.pangle)
     // Unity Ads mediation. Keep the SDK and adapter on the same release family.
-    api("com.unity3d.ads:unity-ads:4.19.0")
-    api("com.google.ads.mediation:unity:4.19.0.0")
+    api(libs.unity.ads)
+    api(libs.mediation.unity)
 
     // UI Libraries
     implementation("com.airbnb.android:lottie:6.7.1")

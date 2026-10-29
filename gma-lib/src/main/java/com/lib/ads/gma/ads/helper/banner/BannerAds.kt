@@ -4,7 +4,7 @@ import com.lib.ads.gma.ads.engine.AdsProvider
 import com.lib.ads.gma.ads.manager.BannerAdManager
 import com.lib.ads.gma.ads.helper.banner.params.BannerPreloadState
 import com.lib.ads.gma.ads.model.wrapper.BannerAdListener
-import com.lib.ads.gma.ads.helper.extension.extractAdUnitIdOrNull
+import com.lib.ads.gma.ads.helper.extension.adUnitIdOrEmpty
 import com.lib.ads.gma.ads.util.AppLogger
 import com.lib.ads.gma.ads.util.AdLogger
 import com.lib.ads.gma.ads.util.AdFormat
@@ -77,10 +77,11 @@ object BannerAds {
 
     fun preload(tag: String, adUnitIds: List<String>, placementId: Long? = null) {
         val spec = specs[tag]
-        if (spec == null || spec.adUnitIds != adUnitIds || spec.placementId != placementId) {
-            register(BannerAdSpec(tag, adUnitIds, placementId))
+        val current = if (spec == null || spec.adUnitIds != adUnitIds || spec.placementId != placementId) {
+            BannerAdSpec(tag, adUnitIds, placementId).also(::register)
+        } else {
+            spec
         }
-        val current = specs[tag]!!
         preloadInternal(current, force = false)
     }
 
@@ -144,7 +145,7 @@ object BannerAds {
                             }
                             if (result != null && generations[tag]?.get() == generation) {
                                 cache.addLast(result)
-                                val winningId = result.ad.getResponseInfo().extractAdUnitIdOrNull().orEmpty()
+                                val winningId = result.ad.adUnitIdOrEmpty()
                                 AdLogger.d(AdFormat.BANNER, tag, "FILL", "id=$winningId cached=${cache.size} target=$requestedTarget")
                                 // Keep ItemLoaded until every worker has finished. Publishing Ready
                                 // here lets a holder poll the last item while sibling workers are
@@ -197,6 +198,21 @@ object BannerAds {
         )
     }
 
+    /**
+     * Low memory: destroys the buffered (not yet shown) banners. Banners already on screen are not
+     * touched; the next request loads fresh ones.
+     */
+    internal fun trimBuffers() {
+        scope.launch {
+            tagCaches.snapshot().keys.forEach { tag ->
+                // remove() does not go through the eviction branch of entryRemoved: destroy here.
+                tagCaches.remove(tag)?.forEach(::destroyCached)
+                preloadStartedAt.remove(tag)
+                if (preloadJobs[tag]?.isActive != true) state(tag).value = BannerPreloadState.Idle
+            }
+        }
+    }
+
     fun stateFlow(tag: String): StateFlow<BannerPreloadState> = state(tag)
 
     fun available(tag: String): Int {
@@ -216,7 +232,7 @@ object BannerAds {
      */
     fun readyAdUnitId(tag: String): String? {
         val spec = specs[tag] ?: return null
-        return tagCaches.get(tag)?.firstOrNull()?.ad?.getResponseInfo()?.extractAdUnitIdOrNull()
+        return tagCaches.get(tag)?.firstOrNull()?.ad?.adUnitIdOrEmpty()?.takeIf { it.isNotEmpty() }
     }
 
     /** Replaces cached ads whose configured TTL has elapsed before they are consumed. */
@@ -319,7 +335,7 @@ object BannerAds {
             throw e
         } ?: return null
         BannerAdManager.bindBannerAdListener(cached.sourceView.context.applicationContext, cached.ad, callback)
-        return cached.sourceView to cached.ad.getResponseInfo().extractAdUnitIdOrNull().orEmpty()
+        return cached.sourceView to cached.ad.adUnitIdOrEmpty()
     }
 
     private fun keepUnclaimed(tag: String, cached: CachedBanner) {
@@ -364,6 +380,11 @@ object BannerAds {
         spec: BannerAdSpec,
         failures: MutableList<String> = mutableListOf(),
     ): CachedBanner? {
+        // Calls the SDK directly: it must not run before MobileAds.initialize (consent-first apps).
+        if (!AdsProvider.getInstance().awaitReadySuspend()) {
+            failures += "Mobile Ads SDK not initialized"
+            return null
+        }
         for (id in spec.adUnitIds) {
             val result = loadOneBanner(context, spec, id, failures)
             if (result != null) return result

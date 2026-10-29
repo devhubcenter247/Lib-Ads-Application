@@ -4,7 +4,6 @@ import androidx.annotation.LayoutRes
 import com.lib.ads.gma.ads.helper.fullscreen.preload.FullScreenAdStore
 import com.lib.ads.gma.ads.helper.fullscreen.preload.WeightedAdUnit
 import com.lib.ads.gma.ads.helper.adnative.params.NativeLayoutMediation
-import java.util.concurrent.TimeUnit
 
 class NativeAdSpec(
     val tag: String,
@@ -13,7 +12,8 @@ class NativeAdSpec(
     val canShowAds: Boolean = true,
     val canReloadAds: Boolean = true,
     val bufferSize: Int = 1,
-    val ttlMs: Long = TimeUnit.HOURS.toMillis(4),
+    // Native ads should be shown within an hour of loading (only app-open ads last 4 h).
+    val ttlMs: Long = FullScreenAdStore.DEFAULT_TTL_MS,
     val timeoutsMs: List<Long> = emptyList(),
     /** Request settings (AdChoices, media ratio, video, ad types...) used by this tag's preloads. */
     val requestOptions: NativeAdRequestOptions = NativeAdRequestOptions(),

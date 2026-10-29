@@ -13,7 +13,14 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import com.google.android.libraries.ads.mobile.sdk.appopen.AppOpenAdPreloader
 import com.google.android.libraries.ads.mobile.sdk.common.AdRequest
+import com.google.android.libraries.ads.mobile.sdk.rewarded.RewardedAdPreloader
+import com.google.android.libraries.ads.mobile.sdk.rewardedinterstitial.RewardedInterstitialAdPreloader
+import com.lib.ads.gma.ads.helper.appopen.AppOpenManager
+import com.lib.ads.gma.ads.helper.appopen.preload.AppOpenAdPreload
+import com.lib.ads.gma.ads.helper.interstitial.preload.InterstitialAdPreload
+import com.lib.ads.gma.ads.helper.reward.preload.RewardAdPreload
 import com.google.android.libraries.ads.mobile.sdk.common.ExperimentalApi
 import com.lib.ads.gma.ads.helper.banner.bindToContainer
 import com.lib.ads.gma.ads.helper.banner.createBannerAdHolder
@@ -46,6 +53,20 @@ object AdsManager {
         placementId?.let { setPlacementId(it) }
         if (skipUninitializedAdapters) skipUninitializedAdapters()
     }.build()
+
+    /**
+     * Premium: stops the SDK preloaders, which keep refilling ads nobody will show, and drops the
+     * buffered full-screen ads. Banner/native holders already refuse to load for premium users.
+     */
+    internal fun releasePreloadsForPremium() {
+        AppOpenAdPreloader.destroyAll()
+        RewardedAdPreloader.destroyAll()
+        RewardedInterstitialAdPreloader.destroyAll()
+        AppOpenManager.getInstance().clearStartedPreloads()
+        InterstitialAdPreload.releaseAll()
+        RewardAdPreload.releaseAll()
+        AppOpenAdPreload.releaseAll()
+    }
 
     @SuppressLint("MissingPermission", "NotificationPermission")
     fun showTestIdAlert(context: Context, typeAds: Int, id: String) {

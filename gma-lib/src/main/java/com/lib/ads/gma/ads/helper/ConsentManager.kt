@@ -3,10 +3,12 @@ package com.lib.ads.gma.ads.helper
 import android.app.Activity
 import android.content.Context
 import android.util.Log
+import com.google.android.ump.ConsentDebugSettings
 import com.google.android.ump.ConsentForm
 import com.google.android.ump.ConsentInformation
 import com.google.android.ump.ConsentRequestParameters
 import com.google.android.ump.UserMessagingPlatform
+import com.lib.ads.gma.ads.engine.AdsProvider
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
@@ -35,6 +37,30 @@ class ConsentManager(private val activity: Activity) {
     fun getCanRequestAd(): Boolean = canRequestAds
 
     /**
+     * Development builds only: forgets the stored consent so the form shows again on the next
+     * [requestUMP]. Does nothing in production builds.
+     */
+    fun resetConsentForDebug() {
+        if (AdsProvider.getInstance().adConfigOrNull?.isVariantDev != true) return
+        consentInformation.reset()
+    }
+
+    /** Debug geography / test devices from AdSdkConfig, applied in development builds only. */
+    private fun buildRequestParameters(): ConsentRequestParameters {
+        val builder = ConsentRequestParameters.Builder()
+        val config = AdsProvider.getInstance().adConfigOrNull
+        if (config != null && config.isVariantDev &&
+            (config.consentDebugGeography != null || config.consentTestDeviceHashedIds.isNotEmpty())
+        ) {
+            val debug = ConsentDebugSettings.Builder(activity)
+            config.consentDebugGeography?.let(debug::setDebugGeography)
+            config.consentTestDeviceHashedIds.forEach { debug.addTestDeviceHashedId(it) }
+            builder.setConsentDebugSettings(debug.build())
+        }
+        return builder.build()
+    }
+
+    /**
      * `requestConsentInfoUpdate` can fail transiently (e.g. no network yet at cold start)
      * separately from the actual consent decision. On failure it retries [maxRetries] more
      * times with a short delay instead of silently falling back to whatever [canRequestAds]
@@ -47,7 +73,7 @@ class ConsentManager(private val activity: Activity) {
     ) {
         repeat(maxRetries + 1) { attempt ->
             val updated = suspendCancellableCoroutine<Boolean> { continuation ->
-                val params = ConsentRequestParameters.Builder().build()
+                val params = buildRequestParameters()
 
                 consentInformation.requestConsentInfoUpdate(
                     activity,
@@ -66,7 +92,14 @@ class ConsentManager(private val activity: Activity) {
                     }
                 )
             }
-            if (updated) return
+            if (updated) {
+                AdsProvider.getInstance().onConsentUpdated(activity)
+                // Consent-first apps (initializeAdsOnCreate() = false) wait for this point; an app
+                // that forgot to call initializeIfNeeded() ran the whole session without ads.
+                // Idempotent, so apps that already call it are unaffected.
+                if (canRequestAds) AdsProvider.getInstance().initializeIfNeeded()
+                return
+            }
             if (attempt < maxRetries) delay(retryDelayMs)
         }
     }
@@ -75,7 +108,10 @@ class ConsentManager(private val activity: Activity) {
         activity: Activity,
         onConsentFormDismissedListener: ConsentForm.OnConsentFormDismissedListener
     ) {
-        UserMessagingPlatform.showPrivacyOptionsForm(activity, onConsentFormDismissedListener)
+        UserMessagingPlatform.showPrivacyOptionsForm(activity) { formError ->
+            AdsProvider.getInstance().onConsentUpdated(activity)
+            onConsentFormDismissedListener.onConsentFormDismissed(formError)
+        }
     }
 
     companion object {
